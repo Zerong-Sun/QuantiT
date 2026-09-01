@@ -2,11 +2,40 @@
 
 from __future__ import annotations
 
+from collections import deque
+
 import numpy as np
-import pandas as pd
 
 from quantit.engine.backtester import BacktestResult
+from quantit.engine.broker import OrderSide, Trade
 from quantit.utils.config import get_config
+
+
+def _round_trip_win_rate(trades: list[Trade]) -> float:
+    """FIFO-match buys with sells; a closed lot wins if sell price > buy price."""
+    lots: deque[list[float]] = deque()
+    wins = 0
+    closed = 0
+    for trade in trades:
+        if trade.side == OrderSide.BUY:
+            lots.append([float(trade.quantity), float(trade.price)])
+            continue
+        remaining = float(trade.quantity)
+        while remaining > 0 and lots:
+            lot_qty, lot_price = lots[0]
+            matched = min(remaining, lot_qty)
+            closed += 1
+            if trade.price > lot_price:
+                wins += 1
+            lot_qty -= matched
+            remaining -= matched
+            if lot_qty <= 0:
+                lots.popleft()
+            else:
+                lots[0][0] = lot_qty
+    if closed == 0:
+        return 0.0
+    return wins / closed
 
 
 def compute_metrics(result: BacktestResult) -> dict[str, float]:
@@ -44,8 +73,8 @@ def compute_metrics(result: BacktestResult) -> dict[str, float]:
 
     calmar = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
 
-    win_trades = [t for t in result.trades if t.side.value == "sell"]
     total_trades = len(result.trades)
+    win_rate = _round_trip_win_rate(result.trades)
 
     metrics = {
         "total_return": float(total_return),
@@ -56,6 +85,7 @@ def compute_metrics(result: BacktestResult) -> dict[str, float]:
         "calmar_ratio": float(calmar),
         "volatility": float(returns.std() * np.sqrt(config.trading_days_per_year)),
         "total_trades": float(total_trades),
+        "win_rate": float(win_rate),
         "final_equity": float(equity.iloc[-1]),
         "initial_equity": float(equity.iloc[0]),
     }
@@ -78,6 +108,7 @@ def format_metrics(metrics: dict[str, float]) -> str:
         f"Calmar Ratio:    {metrics.get('calmar_ratio', 0):>10.2f}",
         f"Volatility:      {metrics.get('volatility', 0):>10.2%}",
         f"Total Trades:    {metrics.get('total_trades', 0):>10.0f}",
+        f"Win Rate:        {metrics.get('win_rate', 0):>10.2%}",
         f"Final Equity:    ${metrics.get('final_equity', 0):>10,.2f}",
     ]
     return "\n".join(lines)

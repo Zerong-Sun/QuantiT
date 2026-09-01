@@ -23,9 +23,26 @@ class DataLoader:
 
     @staticmethod
     def _covers(cached: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp) -> bool:
+        """True if cache spans the request, allowing weekend/holiday session gaps."""
         if cached is None or cached.empty:
             return False
-        return cached.index.min() <= start and cached.index.max() >= end
+        pad = pd.Timedelta(days=5)
+        return cached.index.min() <= start + pad and cached.index.max() >= end - pad
+
+    def _try_fetch(
+        self,
+        symbol: str,
+        start: str | datetime,
+        end: str | datetime,
+        interval: str,
+    ) -> pd.DataFrame | None:
+        try:
+            df = self.provider.fetch(symbol, start, end, interval)
+        except ValueError:
+            return None
+        if df is None or df.empty:
+            return None
+        return df
 
     def _merge_cache(self, existing: pd.DataFrame | None, incoming: pd.DataFrame) -> pd.DataFrame:
         if existing is None or existing.empty:
@@ -60,14 +77,27 @@ class DataLoader:
 
         frames: list[pd.DataFrame] = []
         if cached is None or cached.empty:
-            frames.append(self.provider.fetch(symbol, start, end, interval))
+            fetched = self._try_fetch(symbol, start, end, interval)
+            if fetched is None:
+                raise ValueError(f"No data returned for {symbol} ({start} to {end})")
+            frames.append(fetched)
         else:
             if cached.index.min() > start_ts:
-                frames.append(self.provider.fetch(symbol, start, cached.index.min(), interval))
+                chunk = self._try_fetch(symbol, start, cached.index.min(), interval)
+                if chunk is not None:
+                    frames.append(chunk)
             if cached.index.max() < end_ts:
-                frames.append(self.provider.fetch(symbol, cached.index.max(), end, interval))
+                chunk = self._try_fetch(symbol, cached.index.max(), end, interval)
+                if chunk is not None:
+                    frames.append(chunk)
             if not frames:
-                frames.append(self.provider.fetch(symbol, start, end, interval))
+                combined = cached.sort_index()
+                if use_cache:
+                    mask = (combined.index >= start_ts) & (combined.index <= end_ts)
+                    sliced = combined.loc[mask]
+                    if not sliced.empty:
+                        return sliced.copy()
+                raise ValueError(f"No data returned for {symbol} ({start} to {end})")
 
         fetched = pd.concat(frames) if len(frames) > 1 else frames[0]
         fetched = fetched.sort_index()
