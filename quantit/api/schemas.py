@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field
+
+NOTE_MAX_LEN = 4000
 
 
 class MarketOut(BaseModel):
@@ -57,6 +59,7 @@ class OrderIn(BaseModel):
     symbol: str
     side: str
     quantity: int = Field(gt=0)
+    rationale: Optional[str] = None
 
 
 class OrderOut(BaseModel):
@@ -69,6 +72,7 @@ class OrderOut(BaseModel):
     fill_price: float
     commission: float
     reject_reason: Optional[str] = None
+    rationale: Optional[str] = None
     created_at: datetime
     fill_time: Optional[datetime] = None
 
@@ -97,3 +101,60 @@ class AccountOut(BaseModel):
     currency: str
     cash: float
     initial_cash: float
+
+
+class StrategyParamOut(BaseModel):
+    name: str
+    value: Any
+    type: str
+    description: str = ""
+
+
+class StrategyMemberOut(BaseModel):
+    symbol: str
+    name: str
+
+
+class StrategyOut(BaseModel):
+    id: str
+    name: str
+    class_name: str
+    markets: List[str]
+    horizon: str
+    summary: str
+    thesis: str
+    rules: List[str]
+    parameters: List[StrategyParamOut]
+    universe: Optional[dict] = None
+    score_weights: Optional[dict] = None
+
+
+class SignalOut(BaseModel):
+    strategy_id: str
+    name: str
+    action: str
+    reason: str
+    values: dict = Field(default_factory=dict)
+
+
+class SignalBundleOut(BaseModel):
+    market_id: str
+    symbol: str
+    asof: Optional[str] = None
+    headline: str
+    signals: List[SignalOut]
+    evaluated_at: str
+
+
+class NoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=NOTE_MAX_LEN)
+    market_id: Optional[str] = None
+    symbol: Optional[str] = None
+
+
+class NoteOut(BaseModel):
+    id: int
+    body: str
+    market_id: Optional[str] = None
+    symbol: Optional[str] = None
+    created_at: datetime

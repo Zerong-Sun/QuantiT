@@ -3,9 +3,12 @@ import type {
   Bar,
   Instrument,
   Market,
+  Note,
   Order,
   Position,
   Quote,
+  SignalBundle,
+  Strategy,
   Trade,
 } from "./types";
 
@@ -39,7 +42,39 @@ export const api = {
     getJson<Order[]>(market ? `/api/v1/orders?market=${encodeURIComponent(market)}` : "/api/v1/orders"),
   trades: (market?: string) =>
     getJson<Trade[]>(market ? `/api/v1/trades?market=${encodeURIComponent(market)}` : "/api/v1/trades"),
-  placeOrder: async (body: { market: string; symbol: string; side: string; quantity: number }) => {
+  strategies: (market?: string) =>
+    getJson<Strategy[]>(
+      market ? `/api/v1/strategies?market=${encodeURIComponent(market)}` : "/api/v1/strategies",
+    ),
+  signals: (market: string, symbol: string) =>
+    getJson<SignalBundle>(
+      `/api/v1/signals?market=${encodeURIComponent(market)}&symbol=${encodeURIComponent(symbol)}`,
+    ),
+  notes: () => getJson<Note[]>("/api/v1/notes"),
+  addNote: async (body: { body: string; market_id?: string | null; symbol?: string | null }) => {
+    const res = await fetch("/api/v1/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+    return res.json() as Promise<Note>;
+  },
+  deleteNote: async (id: number) => {
+    const res = await fetch(`/api/v1/notes/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+  },
+  placeOrder: async (body: {
+    market: string;
+    symbol: string;
+    side: string;
+    quantity: number;
+    rationale?: string;
+  }) => {
     const res = await fetch("/api/v1/orders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -1,19 +1,26 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./api";
 import { KLineChart } from "./components/KLineChart";
+import { NotesBoard } from "./components/NotesBoard";
+import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
+import { StrategyDesk } from "./components/StrategyDesk";
 import { DEFAULT_SYMBOL, marketUi } from "./markets/config";
 import type {
   Account,
   Bar,
   Instrument,
   Market,
+  Note,
   Order,
   Position,
   Quote,
+  SignalBundle,
+  Strategy,
   Trade,
 } from "./types";
 
 const POLL_MS = 15_000;
+type DeskTab = "blotter" | "strategies" | "notes";
 
 function fmt(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) {
@@ -35,6 +42,11 @@ export function App() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [strategyId, setStrategyId] = useState("");
+  const [signals, setSignals] = useState<SignalBundle | null>(null);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [desk, setDesk] = useState<DeskTab>("blotter");
   const [qty, setQty] = useState(100);
   const [message, setMessage] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -57,17 +69,32 @@ export function App() {
     setTrades(tr);
   }
 
+  async function loadDesk() {
+    const [cats, board] = await Promise.all([api.strategies(), api.notes()]);
+    setStrategies(cats);
+    setNotes(board);
+    setStrategyId((prev) => {
+      if (prev && cats.some((s) => s.id === prev)) {
+        return prev;
+      }
+      const match = cats.find((s) => s.markets.includes(market));
+      return match?.id ?? cats[0]?.id ?? "";
+    });
+  }
+
   async function loadSymbol(nextMarket: string, nextSymbol: string, nextInterval = interval) {
     setError("");
     try {
-      const [inst, q, b] = await Promise.all([
+      const [inst, q, b, sig] = await Promise.all([
         api.instrument(nextMarket, nextSymbol),
         api.quote(nextMarket, nextSymbol),
         api.bars(nextMarket, nextSymbol, nextInterval),
+        api.signals(nextMarket, nextSymbol),
       ]);
       setInstrument(inst);
       setQuote(q);
       setBars(b);
+      setSignals(sig);
       setSymbol(inst.symbol);
       setQuery(inst.symbol);
     } catch (err) {
@@ -86,6 +113,7 @@ export function App() {
       return loadSymbol(first, sym);
     }).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
     loadBlotter().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    loadDesk().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   useEffect(() => {
@@ -94,6 +122,7 @@ export function App() {
         loadSymbol(market, symbol, interval).catch(() => undefined);
       }
       loadBlotter().catch(() => undefined);
+      api.notes().then(setNotes).catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [market, symbol, interval]);
@@ -113,6 +142,10 @@ export function App() {
     setMarket(id);
     const next = DEFAULT_SYMBOL[id] ?? query;
     setInterval("1d");
+    const match = strategies.find((s) => s.markets.includes(id));
+    if (match) {
+      setStrategyId(match.id);
+    }
     await loadSymbol(id, next, "1d");
     await loadBlotter();
   }
@@ -121,7 +154,14 @@ export function App() {
     setMessage("");
     setError("");
     try {
-      const order = await api.placeOrder({ market, symbol, side, quantity: qty });
+      const rationale = signalRationale(signals?.signals ?? [], side);
+      const order = await api.placeOrder({
+        market,
+        symbol,
+        side,
+        quantity: qty,
+        rationale: rationale || undefined,
+      });
       if (order.status === "rejected") {
         setMessage(`Rejected: ${order.reject_reason ?? "unknown"}`);
       } else {
@@ -196,6 +236,7 @@ export function App() {
               ))}
             </div>
           </div>
+          <ReasonBanner signals={signals?.signals ?? []} />
           <KLineChart bars={bars} />
           {error ? <div className="banner error">{error}</div> : null}
         </section>
@@ -215,6 +256,18 @@ export function App() {
           </div>
           {message ? <p className="msg">{message}</p> : null}
 
+          {signals?.signals.length ? (
+            <div className="ticket-reasons">
+              <h3>Why</h3>
+              {signals.signals.map((s) => (
+                <p key={s.strategy_id}>
+                  <span className={`chip-action ${s.action}`}>{s.action}</span>
+                  {s.reason}
+                </p>
+              ))}
+            </div>
+          ) : null}
+
           {selectedOrder ? (
             <div className="detail">
               <h3>Order #{selectedOrder.id}</h3>
@@ -224,9 +277,15 @@ export function App() {
                 <dt>Qty</dt><dd>{selectedOrder.quantity}</dd>
                 <dt>Fill</dt><dd>{fmt(selectedOrder.fill_price, ui.pricePrecision)}</dd>
                 <dt>Commission</dt><dd>{fmt(selectedOrder.commission, 4)}</dd>
+                {selectedOrder.rationale ? (
+                  <>
+                    <dt>Why</dt>
+                    <dd className="wrap">{selectedOrder.rationale}</dd>
+                  </>
+                ) : null}
                 {selectedOrder.reject_reason ? (
                   <>
-                    <dt>Reason</dt>
+                    <dt>Rejected</dt>
                     <dd>{selectedOrder.reject_reason}</dd>
                   </>
                 ) : null}
@@ -236,67 +295,112 @@ export function App() {
         </aside>
       </main>
 
-      <footer className="blotter">
-        <div>
-          <h2>Positions</h2>
-          <table>
-            <thead>
-              <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
-            </thead>
-            <tbody>
-              {positions.length === 0 ? (
-                <tr><td colSpan={4}>No positions</td></tr>
-              ) : positions.map((p) => (
-                <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
-                  <td>{p.market_id}</td>
-                  <td>{p.symbol}</td>
-                  <td>{p.quantity}</td>
-                  <td>{fmt(p.avg_cost)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <footer className="desk">
+        <div className="desk-tabs">
+          {([
+            ["blotter", "Blotter"],
+            ["strategies", "Strategies"],
+            ["notes", "Notes"],
+          ] as const).map(([id, label]) => (
+            <button key={id} className={desk === id ? "active" : ""} onClick={() => setDesk(id)}>
+              {label}
+            </button>
+          ))}
         </div>
-        <div>
-          <h2>Trades</h2>
-          <table>
-            <thead>
-              <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
-            </thead>
-            <tbody>
-              {trades.length === 0 ? (
-                <tr><td colSpan={5}>No trades</td></tr>
-              ) : trades.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
-                  <td>{t.symbol}</td>
-                  <td className={t.side}>{t.side}</td>
-                  <td>{t.quantity}</td>
-                  <td>{fmt(t.price)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <h2>Orders</h2>
-          <table>
-            <thead>
-              <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th></tr>
-            </thead>
-            <tbody>
-              {orders.length === 0 ? (
-                <tr><td colSpan={4}>No orders</td></tr>
-              ) : orders.map((o) => (
-                <tr key={o.id} onClick={() => setSelectedOrder(o)}>
-                  <td>{o.id}</td>
-                  <td>{o.symbol}</td>
-                  <td>{o.status}</td>
-                  <td>{o.quantity}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="desk-body">
+          {desk === "blotter" ? (
+            <div className="blotter">
+              <div>
+                <h2>Positions</h2>
+                <table>
+                  <thead>
+                    <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
+                  </thead>
+                  <tbody>
+                    {positions.length === 0 ? (
+                      <tr><td colSpan={4}>No positions</td></tr>
+                    ) : positions.map((p) => (
+                      <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
+                        <td>{p.market_id}</td>
+                        <td>{p.symbol}</td>
+                        <td>{p.quantity}</td>
+                        <td>{fmt(p.avg_cost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h2>Trades</h2>
+                <table>
+                  <thead>
+                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
+                  </thead>
+                  <tbody>
+                    {trades.length === 0 ? (
+                      <tr><td colSpan={5}>No trades</td></tr>
+                    ) : trades.map((t) => (
+                      <tr key={t.id}>
+                        <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
+                        <td>{t.symbol}</td>
+                        <td className={t.side}>{t.side}</td>
+                        <td>{t.quantity}</td>
+                        <td>{fmt(t.price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h2>Orders</h2>
+                <table>
+                  <thead>
+                    <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
+                  </thead>
+                  <tbody>
+                    {orders.length === 0 ? (
+                      <tr><td colSpan={5}>No orders</td></tr>
+                    ) : orders.map((o) => (
+                      <tr key={o.id} onClick={() => setSelectedOrder(o)}>
+                        <td>{o.id}</td>
+                        <td>{o.symbol}</td>
+                        <td>{o.status}</td>
+                        <td>{o.quantity}</td>
+                        <td className="why">{o.rationale ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+          {desk === "strategies" ? (
+            <StrategyDesk
+              strategies={strategies}
+              selectedId={strategyId}
+              onSelect={setStrategyId}
+              market={market}
+            />
+          ) : null}
+          {desk === "notes" ? (
+            <NotesBoard
+              notes={notes}
+              market={market}
+              symbol={symbol}
+              onAdd={async (body, tagSymbol) => {
+                await api.addNote({
+                  body,
+                  market_id: tagSymbol ? market : null,
+                  symbol: tagSymbol ? symbol : null,
+                });
+                setNotes(await api.notes());
+              }}
+              onDelete={async (id) => {
+                await api.deleteNote(id);
+                setNotes(await api.notes());
+              }}
+            />
+          ) : null}
         </div>
       </footer>
     </div>

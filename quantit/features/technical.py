@@ -61,7 +61,9 @@ class RSIFeature(Feature):
         avg_gain = gain.ewm(span=self.period, adjust=False).mean()
         avg_loss = loss.ewm(span=self.period, adjust=False).mean()
         rs = avg_gain / avg_loss.replace(0, np.nan)
-        return 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
+        # Strict up-days: no losses → RS is infinite → RSI 100 (not NaN).
+        return rsi.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
 
 
 @dataclass

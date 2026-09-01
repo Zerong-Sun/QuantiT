@@ -17,6 +17,33 @@ def _bar_index(context: Context) -> int:
     return int(loc)
 
 
+def ma_cross_side(
+    fast_prev: float,
+    slow_prev: float,
+    fast_curr: float,
+    slow_curr: float,
+) -> str | None:
+    """Return ``buy`` / ``sell`` on a cross, else ``None``. Ignores position."""
+    if pd.isna(fast_prev) or pd.isna(slow_prev) or pd.isna(fast_curr) or pd.isna(slow_curr):
+        return None
+    if fast_prev <= slow_prev and fast_curr > slow_curr:
+        return "buy"
+    if fast_prev >= slow_prev and fast_curr < slow_curr:
+        return "sell"
+    return None
+
+
+def rsi_reversion_side(value: float, buy_threshold: float, sell_threshold: float) -> str | None:
+    """Return ``buy`` / ``sell`` from RSI vs thresholds, else ``None``. Ignores position."""
+    if pd.isna(value):
+        return None
+    if value < buy_threshold:
+        return "buy"
+    if value > sell_threshold:
+        return "sell"
+    return None
+
+
 class MACrossoverStrategy(Strategy):
     """Moving average crossover strategy.
 
@@ -51,15 +78,10 @@ class MACrossoverStrategy(Strategy):
         slow_curr = self._slow_ma.iloc[idx]
         slow_prev = self._slow_ma.iloc[idx - 1]
 
-        if pd.isna(fast_curr) or pd.isna(slow_curr):
-            return
-
-        bullish_cross = fast_prev <= slow_prev and fast_curr > slow_curr
-        bearish_cross = fast_prev >= slow_prev and fast_curr < slow_curr
-
-        if bullish_cross and context.position == 0:
+        side = ma_cross_side(float(fast_prev), float(slow_prev), float(fast_curr), float(slow_curr))
+        if side == "buy" and context.position == 0:
             context.buy_pct(self.position_pct)
-        elif bearish_cross and context.position > 0:
+        elif side == "sell" and context.position > 0:
             context.sell_all()
 
 
@@ -89,10 +111,8 @@ class RSIMeanReversionStrategy(Strategy):
             return
         idx = _bar_index(context)
         val = self._rsi.iloc[idx]
-        if pd.isna(val):
-            return
-
-        if val < self.buy_threshold and context.position == 0:
+        side = rsi_reversion_side(float(val), self.buy_threshold, self.sell_threshold)
+        if side == "buy" and context.position == 0:
             context.buy_pct(self.position_pct)
-        elif val > self.sell_threshold and context.position > 0:
+        elif side == "sell" and context.position > 0:
             context.sell_all()

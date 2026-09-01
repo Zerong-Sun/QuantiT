@@ -67,6 +67,7 @@ class Order(Base):
     fill_price: Mapped[float] = mapped_column(Float, default=0.0)
     commission: Mapped[float] = mapped_column(Float, default=0.0)
     reject_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    rationale: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)
     fill_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -90,3 +91,13 @@ class Trade(Base):
 
     order: Mapped[Order] = relationship(back_populates="trades")
     account: Mapped[Account] = relationship(back_populates="trades")
+
+
+class Note(Base):
+    __tablename__ = "notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    body: Mapped[str] = mapped_column(Text)
+    market_id: Mapped[Optional[str]] = mapped_column(String(8), nullable=True, index=True)
+    symbol: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime)

@@ -81,7 +81,14 @@ class PaperBroker:
             return None
         return pos
 
-    def place_order(self, market_id: str, symbol: str, side: str, quantity: int) -> Order:
+    def place_order(
+        self,
+        market_id: str,
+        symbol: str,
+        side: str,
+        quantity: int,
+        rationale: str | None = None,
+    ) -> Order:
         adapter = self.registry.get(market_id)
         canonical = adapter.normalize_symbol(symbol)
         side = side.lower()
@@ -94,6 +101,7 @@ class PaperBroker:
             side=side,
             quantity=quantity,
             status="pending",
+            rationale=(rationale.strip() or None) if rationale else None,
             created_at=ts,
         )
         self.session.add(order)

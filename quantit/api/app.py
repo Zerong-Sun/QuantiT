@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import List, Optional
 
 import pandas as pd
@@ -15,15 +14,22 @@ from quantit.api.schemas import (
     BarOut,
     InstrumentOut,
     MarketOut,
+    NoteIn,
+    NoteOut,
     OrderIn,
     OrderOut,
     PositionOut,
     QuoteOut,
+    SignalBundleOut,
+    StrategyOut,
     TradeOut,
 )
 from quantit.markets.registry import MarketRegistry, get_registry
 from quantit.paper.broker import PaperBroker
-from quantit.paper.db import create_session
+from quantit.paper.db import create_session, session_on
+from quantit.paper.notes import NoteBook
+from quantit.strategy.catalog import get_strategy, list_strategies
+from quantit.strategy.signals import evaluate_signals
 
 
 def _bar_time(index_value, interval: str) -> str:
@@ -44,6 +50,7 @@ def _order_out(order) -> OrderOut:
         fill_price=order.fill_price,
         commission=order.commission,
         reject_reason=order.reject_reason,
+        rationale=order.rationale,
         created_at=order.created_at,
         fill_time=order.fill_time,
     )
@@ -52,11 +59,13 @@ def _order_out(order) -> OrderOut:
 def create_app(
     broker: PaperBroker | None = None,
     registry: MarketRegistry | None = None,
+    notebook: NoteBook | None = None,
 ) -> FastAPI:
     registry = registry or get_registry()
     if broker is None:
         broker = PaperBroker(create_session(), registry=registry)
     broker.ensure_accounts()
+    notebook = notebook or NoteBook(session_on(broker.session.get_bind()), now=broker.now)
 
     app = FastAPI(title="QuantiT Paper Terminal", version="0.1.0")
     app.add_middleware(
@@ -67,6 +76,7 @@ def create_app(
     )
     app.state.broker = broker
     app.state.registry = registry
+    app.state.notebook = notebook
 
     def _adapter(market_id: str):
         try:
@@ -138,6 +148,66 @@ def create_app(
             )
         return out
 
+    @app.get("/api/v1/strategies", response_model=List[StrategyOut])
+    def strategies(market: Optional[str] = None) -> List[StrategyOut]:
+        return [StrategyOut(**row) for row in list_strategies(market)]
+
+    @app.get("/api/v1/strategies/{strategy_id}", response_model=StrategyOut)
+    def strategy_detail(strategy_id: str) -> StrategyOut:
+        row = get_strategy(strategy_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"unknown strategy: {strategy_id}")
+        return StrategyOut(**row)
+
+    @app.get("/api/v1/signals", response_model=SignalBundleOut)
+    def signals(market: str, symbol: str) -> SignalBundleOut:
+        adapter = _adapter(market)
+        canonical = adapter.normalize_symbol(symbol)
+        end_ts = pd.Timestamp.utcnow()
+        start_ts = end_ts - pd.Timedelta(days=365)
+        try:
+            df = adapter.fetch_bars(canonical, "1d", start_ts, end_ts)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        bundle = evaluate_signals(market, canonical, df)
+        return SignalBundleOut(**bundle)
+
+    @app.get("/api/v1/notes", response_model=List[NoteOut])
+    def list_notes(market: Optional[str] = None, symbol: Optional[str] = None) -> List[NoteOut]:
+        rows = notebook.list_notes(market_id=market, symbol=symbol)
+        return [
+            NoteOut(
+                id=n.id,
+                body=n.body,
+                market_id=n.market_id,
+                symbol=n.symbol,
+                created_at=n.created_at,
+            )
+            for n in rows
+        ]
+
+    @app.post("/api/v1/notes", response_model=NoteOut)
+    def create_note(body: NoteIn) -> NoteOut:
+        try:
+            note = notebook.add_note(body.body, market_id=body.market_id, symbol=body.symbol)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return NoteOut(
+            id=note.id,
+            body=note.body,
+            market_id=note.market_id,
+            symbol=note.symbol,
+            created_at=note.created_at,
+        )
+
+    @app.delete("/api/v1/notes/{note_id}")
+    def delete_note(note_id: int) -> dict:
+        try:
+            notebook.delete_note(note_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return {"ok": True}
+
     @app.get("/api/v1/accounts", response_model=List[AccountOut])
     def accounts() -> List[AccountOut]:
         return [
@@ -187,7 +257,13 @@ def create_app(
     def place_order(body: OrderIn) -> OrderOut:
         _adapter(body.market)
         try:
-            order = broker.place_order(body.market, body.symbol, body.side, body.quantity)
+            order = broker.place_order(
+                body.market,
+                body.symbol,
+                body.side,
+                body.quantity,
+                rationale=body.rationale,
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return _order_out(order)

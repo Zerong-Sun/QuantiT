@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from quantit.features.technical import RSIFeature, SMAFeature
 
@@ -42,5 +43,7 @@ def test_rsi_matches_ewm_formula() -> None:
     avg_loss = loss.ewm(span=period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
     expected = 100 - (100 / (1 + rs))
+    expected = expected.mask((avg_loss == 0) & (avg_gain > 0), 100.0)
 
     pd.testing.assert_series_equal(actual, expected, check_names=False)
+    assert float(actual.dropna().iloc[-1]) == pytest.approx(100.0)
