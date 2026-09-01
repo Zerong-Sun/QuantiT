@@ -1,0 +1,96 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0f14;
+  --panel: #121821;
+  --line: #243040;
+  --text: #e7ecf3;
+  --muted: #8b98a8;
+  --up: #3dd68c;
+  --down: #f0616d;
+  --accent: #4da3ff;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(--text); }
+
+.terminal {
+  height: 100%;
+  display: grid;
+  grid-template-rows: 56px 1fr 220px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.brand { font-weight: 700; letter-spacing: 0.04em; }
+.brand span { color: var(--accent); font-weight: 500; margin-left: 6px; }
+.markets button, .intervals button, .search button, .sides button {
+  background: #1b2430;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.markets button.active, .intervals button.active { background: #2a3a52; border-color: var(--accent); }
+.search { display: flex; gap: 6px; }
+.search input, .ticket input {
+  background: #0f1419;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.session { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+.workspace { display: grid; grid-template-columns: 1fr 280px; min-height: 0; }
+.chart-col { display: flex; flex-direction: column; min-width: 0; }
+.chart-host { flex: 1; min-height: 280px; }
+.quote-bar {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1.4fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.quote-bar h1 { margin: 0; font-size: 22px; }
+.quote-bar p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.last { display: flex; flex-direction: column; }
+.last.up strong, tr .buy { color: var(--up); }
+.last.down strong, tr .sell { color: var(--down); }
+.last span { font-size: 12px; }
+.ohlc { display: flex; gap: 10px; color: var(--muted); font-size: 12px; }
+
+.ticket { border-left: 1px solid var(--line); padding: 14px; background: var(--panel); }
+.ticket h2, .blotter h2 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.ticket label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--muted); }
+.ticket .hint, .est, .cash, .msg { font-size: 12px; color: var(--muted); }
+.sides { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.sides .buy { background: #163528; border-color: var(--up); }
+.sides .sell { background: #3a1b21; border-color: var(--down); }
+.detail { margin-top: 16px; font-size: 12px; }
+.detail dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 8px; }
+.detail dt { color: var(--muted); }
+
+.blotter {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr 1fr;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  overflow: hidden;
+}
+.blotter > div { overflow: auto; padding: 10px 12px; border-right: 1px solid var(--line); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th { text-align: left; color: var(--muted); font-weight: 500; }
+td, th { padding: 4px 6px; border-bottom: 1px solid #1c2530; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: #1b2430; }
+.banner { padding: 8px 16px; font-size: 12px; }
+.banner.error { color: var(--down); }

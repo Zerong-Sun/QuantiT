@@ -22,3 +22,5 @@ Thumbs.db
 *~
 examples/backtest_report.html
 examples/hk_tech_rotation_report.html
+web/node_modules/
+web/dist/

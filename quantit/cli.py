@@ -69,6 +69,38 @@ def _cmd_news(args: argparse.Namespace) -> None:
         print()
 
 
+def _cmd_serve(args: argparse.Namespace) -> None:
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise SystemExit("Install the paper extra: pip install -e '.[paper]'") from exc
+
+    import threading
+    import time
+    import webbrowser
+
+    from quantit.api.app import create_app
+
+    url = f"http://{args.host}:{args.port}/"
+    print(f"Paper terminal UI: {url}", flush=True)
+    print("Do not open web/index.html as a file.", flush=True)
+
+    if args.open_browser:
+        def _open() -> None:
+            time.sleep(1.0)
+            webbrowser.open(url)
+
+        threading.Thread(target=_open, daemon=True).start()
+
+    uvicorn.run(
+        create_app,
+        factory=True,
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="QuantiT quantitative trading platform")
     parser.add_argument("--version", action="version", version="QuantiT 0.1.0")
@@ -89,12 +121,32 @@ def main() -> None:
     news.add_argument("--watch", action="store_true", help="Poll repeatedly")
     news.add_argument("--interval", type=int, default=30, help="Watch interval in seconds")
 
+    serve = sub.add_parser("serve", help="Run the paper trading API server")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--reload", action="store_true")
+    serve.add_argument(
+        "--open",
+        dest="open_browser",
+        action="store_true",
+        default=True,
+        help="Open the UI in a browser (default)",
+    )
+    serve.add_argument(
+        "--no-open",
+        dest="open_browser",
+        action="store_false",
+        help="Do not open a browser",
+    )
+
     args = parser.parse_args()
 
     if args.command == "backtest":
         _cmd_backtest(args)
     elif args.command == "news":
         _cmd_news(args)
+    elif args.command == "serve":
+        _cmd_serve(args)
     else:
         parser.print_help()
 
