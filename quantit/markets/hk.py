@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from quantit.markets.adapter import MarketAdapter
 from quantit.markets.base import MarketProfile
 
 HK_PROFILE = MarketProfile(
@@ -63,3 +64,53 @@ def theme_of(symbol: str) -> str | None:
         if symbol in members:
             return name
     return None
+
+
+HK_NAMES: dict[str, str] = {
+    "0700.HK": "Tencent",
+    "9988.HK": "Alibaba",
+    "3690.HK": "Meituan",
+    "9618.HK": "JD.com",
+    "1024.HK": "Kuaishou",
+    "9999.HK": "NetEase",
+    "9888.HK": "Baidu",
+    "1810.HK": "Xiaomi",
+    "0992.HK": "Lenovo",
+    "2382.HK": "Sunny Optical",
+    "0981.HK": "SMIC",
+    "1347.HK": "Hua Hong",
+    "1211.HK": "BYD",
+    "2015.HK": "Li Auto",
+    "9866.HK": "NIO",
+    "9868.HK": "XPeng",
+}
+
+# Known board lots. Missing entries skip lot enforcement (see lot_size_note).
+HK_BOARD_LOTS: dict[str, int] = {
+    "0700.HK": 100,
+    "9988.HK": 100,
+    "1810.HK": 200,
+}
+
+
+class HKAdapter(MarketAdapter):
+    market_id = "hk"
+    profile = HK_PROFILE
+    timezone = "Asia/Hong_Kong"
+    session_hours = "09:30-16:00 HKT"
+    t_plus = 0
+
+    def normalize_symbol(self, raw: str) -> str:
+        s = raw.strip().upper()
+        if s.endswith(".HK"):
+            s = s[: -len(".HK")]
+        digits = s.lstrip("0") or "0"
+        if digits.isdigit():
+            return f"{int(digits):04d}.HK"
+        return f"{s}.HK"
+
+    def lot_size(self, symbol: str) -> int:
+        return HK_BOARD_LOTS.get(self.normalize_symbol(symbol), 0)
+
+    def universe(self) -> dict[str, str]:
+        return HK_NAMES
