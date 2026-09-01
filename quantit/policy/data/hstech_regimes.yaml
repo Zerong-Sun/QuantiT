@@ -1,0 +1,88 @@
+themes:
+  - platforms
+  - hardware
+  - semis
+  - ev
+
+# Integer scores in [-2, 2] per theme. Overlapping regimes are summed then clipped.
+# These are structured policy/geopolitical *regimes*, not news headlines.
+regimes:
+  - name: covid_shock
+    start: 2020-01-01
+    end: 2020-03-31
+    scores:
+      platforms: -1
+      hardware: -1
+      semis: -1
+      ev: -1
+    notes: "Global risk-off. Not a China-specific internet crackdown."
+
+  - name: recovery_and_nev_support
+    start: 2020-04-01
+    end: 2021-06-30
+    scores:
+      platforms: 1
+      hardware: 1
+      semis: 0
+      ev: 1
+    notes: "Liquidity recovery; NEV industrial policy still supportive; platforms not yet in the 2021 clampdown."
+
+  - name: internet_crackdown
+    start: 2021-07-01
+    end: 2022-11-30
+    scores:
+      platforms: -2
+      hardware: 0
+      semis: 0
+      ev: 1
+    notes: "Antitrust, data security, after-school tutoring spillover, gaming license freeze. EV policy still constructive."
+
+  - name: us_export_controls_2022
+    start: 2022-10-07
+    end: 2023-09-30
+    scores:
+      platforms: 0
+      hardware: 0
+      semis: -1
+      ev: 0
+    notes: "October 2022 semiconductor export controls. Overlaps internet_crackdown then reopening."
+
+  - name: reopening_wait
+    start: 2022-12-01
+    end: 2023-06-30
+    scores:
+      platforms: 0
+      hardware: 0
+      semis: 0
+      ev: 0
+    notes: "Exit of zero-COVID; platform policy not yet clearly eased."
+
+  - name: platform_easing
+    start: 2023-07-01
+    end: 2026-12-31
+    scores:
+      platforms: 1
+      hardware: 1
+      semis: 0
+      ev: 0
+    notes: "Support-private-economy / platform-economy stabilization; gaming licenses resumed on a schedule."
+
+  - name: us_export_controls_2023
+    start: 2023-10-01
+    end: 2026-12-31
+    scores:
+      platforms: 0
+      hardware: 0
+      semis: -2
+      ev: 0
+    notes: "Tightened semiconductor equipment and chip controls."
+
+  - name: ev_overseas_tariffs
+    start: 2024-04-01
+    end: 2026-12-31
+    scores:
+      platforms: 0
+      hardware: 0
+      semis: 0
+      ev: -1
+    notes: "EU anti-subsidy process and related overseas tariff risk for China EVs. Domestic NEV competition remains intense."

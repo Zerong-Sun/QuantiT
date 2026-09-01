@@ -3,8 +3,9 @@
 import pandas as pd
 import pytest
 
+from quantit.analysis.metrics import compute_metrics
 from quantit.engine.backtester import Backtester
-from quantit.engine.broker import Broker, OrderSide
+from quantit.engine.broker import Broker, OrderStatus
 from quantit.engine.portfolio import Portfolio
 from quantit.strategy.technical import MACrossoverStrategy
 
@@ -40,14 +41,34 @@ class TestPortfolio:
         p.buy("AAPL", 10, 100.0)
         assert p.equity({"AAPL": 110.0}) == 10_000 - 1000 + 1100
 
+    def test_market_value_uses_mark(self) -> None:
+        p = Portfolio(initial_cash=10_000)
+        p.buy("AAPL", 10, 100.0)
+        pos = p.get_position("AAPL")
+        assert pos.market_value(110.0) == 1100.0
+        assert pos.market_value() == 1000.0
+
+    def test_insufficient_cash(self) -> None:
+        p = Portfolio(initial_cash=100)
+        with pytest.raises(ValueError, match="Insufficient cash"):
+            p.buy("AAPL", 10, 100.0)
+
 
 class TestBroker:
     def test_submit_buy(self) -> None:
         p = Portfolio(initial_cash=10_000)
         broker = Broker(p, commission_rate=0.0, slippage_rate=0.0)
         order = broker.buy("AAPL", 10, 100.0, pd.Timestamp("2020-01-01"))
-        assert order.status.value == "filled"
+        assert order.status == OrderStatus.FILLED
         assert len(broker.trades) == 1
+
+    def test_insufficient_cash_rejects(self) -> None:
+        p = Portfolio(initial_cash=50)
+        broker = Broker(p, commission_rate=0.0, slippage_rate=0.0)
+        order = broker.buy("AAPL", 10, 100.0, pd.Timestamp("2020-01-01"))
+        assert order.status == OrderStatus.REJECTED
+        assert p.cash == 50
+        assert len(broker.trades) == 0
 
 
 class TestBacktester:
@@ -57,3 +78,6 @@ class TestBacktester:
         result = Backtester(initial_cash=100_000).run(strategy, data, symbol="TEST")
         assert not result.equity_curve.empty
         assert result.equity_curve.iloc[0] == 100_000
+        metrics = compute_metrics(result)
+        assert "win_rate" in metrics
+        assert metrics["total_trades"] == float(len(result.trades))

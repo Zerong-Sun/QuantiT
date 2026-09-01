@@ -16,9 +16,10 @@ class Position:
     quantity: int = 0
     avg_cost: float = 0.0
 
-    @property
-    def market_value(self) -> float:
-        return self.quantity * self.avg_cost
+    def market_value(self, price: float | None = None) -> float:
+        """Mark-to-market value. Falls back to average cost if no price is given."""
+        px = self.avg_cost if price is None else price
+        return self.quantity * px
 
     def update_buy(self, quantity: int, price: float) -> None:
         total_cost = self.avg_cost * self.quantity + price * quantity

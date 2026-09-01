@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from quantit.engine.broker import Broker, Order
+from quantit.engine.broker import Broker, Order, OrderSide
 from quantit.engine.portfolio import Portfolio
 
 
@@ -24,41 +24,57 @@ class Context:
     current_bar: pd.Series | None = None
     indicators: dict[str, pd.Series] = field(default_factory=dict)
     extra: dict = field(default_factory=dict)
+    prices: dict[str, float] = field(default_factory=dict)
+    bars: dict[str, pd.Series] = field(default_factory=dict)
+    data_map: dict[str, pd.DataFrame] = field(default_factory=dict)
 
     @property
     def position(self) -> int:
-        """Current position quantity."""
+        """Current position quantity (includes fills already applied this bar)."""
         pos = self.portfolio.get_position(self.symbol)
         return pos.quantity
 
-    def buy(self, quantity: int, price: float | None = None) -> Order:
-        """Place a buy order."""
-        if price is None:
-            price = float(self.current_bar["close"])
-        return self.broker.buy(self.symbol, quantity, price, self.current_date)
+    def position_of(self, symbol: str) -> int:
+        """Quantity held in ``symbol``."""
+        return self.portfolio.get_position(symbol).quantity
 
-    def sell(self, quantity: int, price: float | None = None) -> Order:
-        """Place a sell order."""
-        if price is None:
-            price = float(self.current_bar["close"])
-        return self.broker.sell(self.symbol, quantity, price, self.current_date)
+    def _signal_price(self, price: float | None, symbol: str | None = None) -> float:
+        if price is not None:
+            return price
+        sym = symbol or self.symbol
+        if self.prices and sym in self.prices:
+            return float(self.prices[sym])
+        if self.current_bar is not None and "close" in self.current_bar.index:
+            return float(self.current_bar["close"])
+        raise ValueError("No current bar to infer price from")
 
-    def buy_pct(self, pct: float, price: float | None = None) -> Order | None:
-        """Buy using a percentage of available cash."""
-        if price is None:
-            price = float(self.current_bar["close"])
+    def buy(self, quantity: int, price: float | None = None, symbol: str | None = None) -> Order:
+        """Queue a buy. Fill price is set by the backtester, not ``price``."""
+        order = Order(symbol=symbol or self.symbol, side=OrderSide.BUY, quantity=quantity)
+        return self.broker.submit_order(order)
+
+    def sell(self, quantity: int, price: float | None = None, symbol: str | None = None) -> Order:
+        """Queue a sell. Fill price is set by the backtester, not ``price``."""
+        order = Order(symbol=symbol or self.symbol, side=OrderSide.SELL, quantity=quantity)
+        return self.broker.submit_order(order)
+
+    def buy_pct(self, pct: float, price: float | None = None, symbol: str | None = None) -> Order | None:
+        """Buy using a percentage of available cash (size estimated at signal price)."""
+        sym = symbol or self.symbol
+        px = self._signal_price(price, symbol=sym)
         cash = self.portfolio.cash
-        qty = int((cash * pct) / price)
+        qty = int((cash * pct) / px)
         if qty <= 0:
             return None
-        return self.buy(qty, price)
+        return self.buy(qty, px, symbol=sym)
 
-    def sell_all(self, price: float | None = None) -> Order | None:
-        """Sell entire position."""
-        qty = self.position
+    def sell_all(self, price: float | None = None, symbol: str | None = None) -> Order | None:
+        """Sell entire position in ``symbol`` (default: the context symbol)."""
+        sym = symbol or self.symbol
+        qty = self.position_of(sym)
         if qty <= 0:
             return None
-        return self.sell(qty, price)
+        return self.sell(qty, price, symbol=sym)
 
 
 class Strategy(ABC):

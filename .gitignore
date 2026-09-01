@@ -20,3 +20,5 @@ Thumbs.db
 *.swp
 *.swo
 *~
+examples/backtest_report.html
+examples/hk_tech_rotation_report.html

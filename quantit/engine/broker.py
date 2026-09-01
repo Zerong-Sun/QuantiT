@@ -51,23 +51,28 @@ class Trade:
 
 
 class Broker:
-    """Simulated broker with commission and slippage."""
+    """Simulated broker with commission and slippage.
+
+    Market orders are queued and filled by ``fill_pending``. The backtester
+    decides whether that happens on the next bar's open or the same bar's close.
+    """
 
     def __init__(
         self,
         portfolio: Portfolio,
         commission_rate: float | None = None,
         slippage_rate: float | None = None,
+        fill_on: str | None = None,
     ) -> None:
         config = get_config()
         self.portfolio = portfolio
         self.commission_rate = commission_rate if commission_rate is not None else config.commission_rate
         self.slippage_rate = slippage_rate if slippage_rate is not None else config.slippage_rate
+        self.fill_on = fill_on if fill_on is not None else config.fill_on
         self.trades: list[Trade] = []
         self.pending_orders: list[Order] = []
 
-    def submit_order(self, order: Order, price: float, timestamp: datetime) -> Order:
-        """Submit and immediately fill a market order at the given price."""
+    def _fill(self, order: Order, price: float, timestamp: datetime) -> Order:
         if order.quantity <= 0:
             order.status = OrderStatus.REJECTED
             return order
@@ -103,12 +108,45 @@ class Broker:
         )
         return order
 
-    def buy(self, symbol: str, quantity: int, price: float, timestamp: datetime) -> Order:
-        """Convenience method to buy."""
-        order = Order(symbol=symbol, side=OrderSide.BUY, quantity=quantity)
-        return self.submit_order(order, price, timestamp)
+    def submit_order(self, order: Order) -> Order:
+        """Queue a market order for later fill."""
+        if order.quantity <= 0:
+            order.status = OrderStatus.REJECTED
+            return order
+        order.status = OrderStatus.PENDING
+        self.pending_orders.append(order)
+        return order
 
-    def sell(self, symbol: str, quantity: int, price: float, timestamp: datetime) -> Order:
-        """Convenience method to sell."""
+    def fill_pending(self, prices: dict[str, float], timestamp: datetime) -> list[Order]:
+        """Fill queued orders at the given per-symbol prices."""
+        filled: list[Order] = []
+        remaining: list[Order] = []
+        for order in self.pending_orders:
+            price = prices.get(order.symbol)
+            if price is None:
+                remaining.append(order)
+                continue
+            result = self._fill(order, price, timestamp)
+            filled.append(result)
+        self.pending_orders = remaining
+        return filled
+
+    def cancel_pending(self) -> None:
+        """Cancel all unfilled orders (used at end of backtest)."""
+        for order in self.pending_orders:
+            order.status = OrderStatus.CANCELLED
+        self.pending_orders.clear()
+
+    def buy(self, symbol: str, quantity: int, price: float | None = None, timestamp: datetime | None = None) -> Order:
+        """Place a buy. Fills immediately only when price and timestamp are given (same-close tests)."""
+        order = Order(symbol=symbol, side=OrderSide.BUY, quantity=quantity)
+        if price is not None and timestamp is not None:
+            return self._fill(order, price, timestamp)
+        return self.submit_order(order)
+
+    def sell(self, symbol: str, quantity: int, price: float | None = None, timestamp: datetime | None = None) -> Order:
+        """Place a sell. Fills immediately only when price and timestamp are given (same-close tests)."""
         order = Order(symbol=symbol, side=OrderSide.SELL, quantity=quantity)
-        return self.submit_order(order, price, timestamp)
+        if price is not None and timestamp is not None:
+            return self._fill(order, price, timestamp)
+        return self.submit_order(order)

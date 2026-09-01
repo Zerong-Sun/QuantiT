@@ -40,9 +40,15 @@ knowledge_base/
 │   ├── order_book.md        # 订单簿与流动性
 │   ├── market_making.md     # 做市策略
 │   └── execution.md         # 执行算法
-└── 09_behavioral_finance/   # 行为金融
-    ├── biases.md            # 认知偏差
-    └── anomalies.md         # 市场异象
+├── 09_behavioral_finance/   # 行为金融
+│   ├── biases.md            # 认知偏差
+│   └── anomalies.md         # 市场异象
+└── 10_hong_kong/            # 港股长线（恒生科技主题轮动）
+    ├── market_structure.md  # HKEX、联系汇率、港股通、印花税
+    ├── supply_demand.md     # 成交额、汇率流动性、南向资金代理
+    ├── policy_regimes.md    # 政策体制日历（非新闻情绪）
+    ├── international.md     # 美元、美债、纳指、人民币传导
+    └── hstech_rotation.md   # 月频主题权重
 ```
 
 ## 使用方式
