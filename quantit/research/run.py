@@ -14,6 +14,8 @@ from quantit.research.promote import maybe_promote
 from quantit.research.report import regime_summary, render_study, write_folds_csv
 from quantit.research.specs import get_spec
 from quantit.research.universes import (
+    CN_QUALITY,
+    CN_QUALITY_MARKET,
     US_QUALITY,
     US_QUALITY_BENCHMARK,
     YAHOO_ALIASES,
@@ -83,22 +85,18 @@ def _load_frames(symbols: list[str], start: str, end: str) -> dict[str, pd.DataF
     from quantit.data.cn_csv import CompositeCNProvider
     from quantit.data.loader import DataLoader
 
-    us_hk = [s for s in symbols if not _is_cn_symbol(s)]
-    cn = [s for s in symbols if _is_cn_symbol(s)]
     frames: dict[str, pd.DataFrame] = {}
-    if us_hk:
-        loader = DataLoader()
-        for sym in us_hk:
-            fetch = YAHOO_ALIASES.get(sym, sym)
-            df = _load_one(loader, fetch, start, end)
-            if df is not None:
-                frames[sym] = df
-    if cn:
-        loader = DataLoader(provider=CompositeCNProvider())
-        for sym in cn:
-            df = _load_one(loader, sym, start, end)
-            if df is not None:
-                frames[sym] = df
+    yahoo = DataLoader()
+    cn_loader: DataLoader | None = None
+    for sym in symbols:
+        fetch = YAHOO_ALIASES.get(sym, sym)
+        df = _load_one(yahoo, fetch, start, end)
+        if df is None and _is_cn_symbol(sym):
+            if cn_loader is None:
+                cn_loader = DataLoader(provider=CompositeCNProvider())
+            df = _load_one(cn_loader, sym, start, end)
+        if df is not None:
+            frames[sym] = df
     missing = [s for s in symbols if s not in frames]
     if missing:
         print("Missing after retries: " + ", ".join(missing))
@@ -260,6 +258,20 @@ def run_research(
                 print(
                     f"{US_QUALITY_BENCHMARK} buy-and-hold Sharpe "
                     f"{float(m.get('sharpe_ratio') or 0):.2f} (reference only)"
+                )
+        except (SystemExit, ValueError, KeyError):
+            pass
+    if spec.kind != "multi" and set(names) == set(CN_QUALITY):
+        try:
+            hs = _load_frames([CN_QUALITY_MARKET], start, end)
+            if hs:
+                from quantit.research.search import buy_and_hold_metrics
+
+                frame = next(iter(hs.values()))
+                m = buy_and_hold_metrics(frame, CN_QUALITY_MARKET)
+                print(
+                    f"{CN_QUALITY_MARKET} buy-and-hold Sharpe "
+                    f"{float(m.get('sharpe_ratio') or 0):.2f} (market contrast only)"
                 )
         except (SystemExit, ValueError, KeyError):
             pass
