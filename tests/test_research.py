@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 
 import pandas as pd
 import pytest
@@ -66,6 +67,8 @@ def test_walk_forward_records_oos() -> None:
     assert study.oos_sharpe == pytest.approx(
         sum(f.oos_metrics["sharpe_ratio"] for f in study.folds) / len(study.folds)
     )
+    assert all(math.isfinite(f.oos_metrics["sharpe_ratio"]) for f in study.folds)
+    assert sum(f.oos_metrics["total_trades"] for f in study.folds) > 0
 
 
 def test_gates_fail_does_not_promote(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

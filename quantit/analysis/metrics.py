@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from collections import deque
+from datetime import datetime
 
 import numpy as np
+import pandas as pd
 
 from quantit.engine.backtester import BacktestResult
 from quantit.engine.broker import OrderSide, Trade
@@ -38,10 +41,46 @@ def _round_trip_win_rate(trades: list[Trade]) -> float:
     return wins / closed
 
 
-def compute_metrics(result: BacktestResult) -> dict[str, float]:
-    """Compute standard performance metrics from a backtest result."""
+def _window_equity(equity: pd.Series, start: datetime | None, end: datetime | None) -> pd.Series:
+    if start is None and end is None:
+        return equity
+    start_ts = pd.Timestamp(start) if start is not None else equity.index[0]
+    end_ts = pd.Timestamp(end) if end is not None else equity.index[-1]
+    return equity.loc[(equity.index >= start_ts) & (equity.index <= end_ts)]
+
+
+def _window_trades(
+    trades: list[Trade], start: datetime | None, end: datetime | None
+) -> list[Trade]:
+    if start is None and end is None:
+        return trades
+    start_ts = pd.Timestamp(start) if start is not None else pd.Timestamp.min
+    end_ts = pd.Timestamp(end) if end is not None else pd.Timestamp.max
+    return [t for t in trades if start_ts <= pd.Timestamp(t.timestamp) <= end_ts]
+
+
+def _safe_sharpe(excess: pd.Series, trading_days: float) -> float:
+    if excess.empty:
+        return 0.0
+    vol = float(excess.std())
+    if not math.isfinite(vol) or vol < 1e-12:
+        return 0.0
+    value = float(np.sqrt(trading_days) * excess.mean() / vol)
+    return value if math.isfinite(value) else 0.0
+
+
+def compute_metrics(
+    result: BacktestResult,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> dict[str, float]:
+    """Compute standard performance metrics from a backtest result.
+
+    Optional ``start`` / ``end`` restrict equity, returns, and trades to a
+    window (used for walk-forward OOS after indicator warmup).
+    """
     config = get_config()
-    equity = result.equity_curve
+    equity = _window_equity(result.equity_curve, start, end)
     if equity.empty or len(equity) < 2:
         return {}
 
@@ -54,11 +93,7 @@ def compute_metrics(result: BacktestResult) -> dict[str, float]:
 
     rf_daily = config.risk_free_rate / config.trading_days_per_year
     excess = returns - rf_daily
-    sharpe = (
-        np.sqrt(config.trading_days_per_year) * excess.mean() / excess.std()
-        if excess.std() > 0
-        else 0.0
-    )
+    sharpe = _safe_sharpe(excess, config.trading_days_per_year)
 
     downside = returns[returns < 0]
     sortino = (
@@ -66,15 +101,18 @@ def compute_metrics(result: BacktestResult) -> dict[str, float]:
         if len(downside) > 0 and downside.std() > 0
         else 0.0
     )
+    sortino = float(sortino) if math.isfinite(float(sortino)) else 0.0
 
     cummax = equity.cummax()
     drawdown = (equity - cummax) / cummax
     max_drawdown = drawdown.min()
 
     calmar = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
+    calmar = float(calmar) if math.isfinite(float(calmar)) else 0.0
 
-    total_trades = len(result.trades)
-    win_rate = _round_trip_win_rate(result.trades)
+    trades = _window_trades(result.trades, start, end)
+    total_trades = len(trades)
+    win_rate = _round_trip_win_rate(trades)
 
     metrics = {
         "total_return": float(total_return),

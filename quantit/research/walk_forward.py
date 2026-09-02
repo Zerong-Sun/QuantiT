@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+import math
 
 import pandas as pd
 
@@ -65,9 +66,10 @@ def iter_folds(n: int, train: int = 504, test: int = 126, step: int = 126) -> li
 
 
 def _mean(values: list[float]) -> float:
-    if not values:
+    finite = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+    if not finite:
         return 0.0
-    return float(sum(values) / len(values))
+    return float(sum(finite) / len(finite))
 
 
 def walk_forward(
@@ -88,18 +90,31 @@ def walk_forward(
     for train_sl, test_sl in iter_folds(n, train=train, test=test, step=step):
         train_dates = cal[train_sl]
         test_dates = cal[test_sl]
+        eval_dates = cal[slice(train_sl.start, test_sl.stop)]
         train_data = slice_by_dates(data, train_dates)
         test_data = slice_by_dates(data, test_dates)
+        eval_data = slice_by_dates(data, eval_dates)
         extra_train = _slice_extra_by_dates(extra, train_dates)
-        extra_test = _slice_extra_by_dates(extra, test_dates)
+        extra_eval = _slice_extra_by_dates(extra, eval_dates)
         if _is_empty(train_data) or _is_empty(test_data):
             continue
+        test_start = test_dates[0]
+        test_end = test_dates[-1]
         try:
             best = grid_search(
                 strategy_id, train_data, symbol, grid=grid, initial_cash=initial_cash, extra=extra_train
             )
+            # Replay train+test so lookback indicators are warm; score only the OOS window.
             oos = run_backtest(
-                strategy_id, best["params"], test_data, symbol, initial_cash, extra_test
+                strategy_id,
+                best["params"],
+                eval_data,
+                symbol,
+                initial_cash,
+                extra_eval,
+                metric_start=test_start,
+                metric_end=test_end,
+                active_from=test_start,
             )
             bh = buy_and_hold_metrics(test_data, symbol, initial_cash)
         except (ValueError, KeyError):
@@ -107,7 +122,16 @@ def walk_forward(
         ub_metrics: dict[str, float] = {}
         if strategy_id == "tsmom":
             try:
-                ub = run_backtest("us_book", {}, test_data, symbol, initial_cash)
+                ub = run_backtest(
+                    "us_book",
+                    {},
+                    eval_data,
+                    symbol,
+                    initial_cash,
+                    metric_start=test_start,
+                    metric_end=test_end,
+                    active_from=test_start,
+                )
                 ub_metrics = ub["metrics"]
             except (ValueError, KeyError):
                 ub_metrics = {}

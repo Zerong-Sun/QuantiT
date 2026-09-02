@@ -8,6 +8,7 @@ import pandas as pd
 
 from quantit.analysis.metrics import compute_metrics
 from quantit.engine.backtester import Backtester
+from quantit.engine.broker import Order
 from quantit.research.specs import get_spec
 from quantit.strategy.base import Context, Strategy
 
@@ -51,6 +52,28 @@ class EqualWeightHold(Strategy):
             if qty > 0:
                 context.buy(qty, symbol=sym)
         self._bought = True
+
+
+class DelayedStart(Strategy):
+    """Compute indicators on the full frame, but do not trade before ``active_from``."""
+
+    def __init__(self, inner: Strategy, active_from: object) -> None:
+        self.inner = inner
+        self.active_from = pd.Timestamp(active_from)
+
+    def on_start(self, context: Context) -> None:
+        self.inner.on_start(context)
+
+    def on_bar(self, context: Context, bar: pd.Series) -> None:
+        if context.current_date is None or pd.Timestamp(context.current_date) < self.active_from:
+            return
+        self.inner.on_bar(context, bar)
+
+    def on_order(self, context: Context, order: Order) -> None:
+        self.inner.on_order(context, order)
+
+    def on_end(self, context: Context) -> None:
+        self.inner.on_end(context)
 
 
 def calendar_index(data: pd.DataFrame | dict[str, pd.DataFrame]) -> pd.DatetimeIndex:
@@ -102,17 +125,24 @@ def run_backtest(
     symbol: str,
     initial_cash: float = 100_000.0,
     extra: dict[str, Any] | None = None,
+    metric_start: object | None = None,
+    metric_end: object | None = None,
+    active_from: object | None = None,
 ) -> dict[str, Any]:
     spec = get_spec(strategy_id)
     if spec.kind == "multi":
         scores = (extra or {}).get("scores")
         if scores is None:
             raise ValueError("theme_rotation research requires extra['scores']")
-        strategy = spec.builder(scores, **params)
+        strategy: Strategy = spec.builder(scores, **params)
     else:
         strategy = spec.builder(**params)
+    if active_from is not None:
+        strategy = DelayedStart(strategy, active_from)
     result = Backtester(initial_cash=initial_cash).run(strategy, data, symbol=symbol)
-    metrics = compute_metrics(result)
+    start = pd.Timestamp(metric_start).to_pydatetime() if metric_start is not None else None
+    end = pd.Timestamp(metric_end).to_pydatetime() if metric_end is not None else None
+    metrics = compute_metrics(result, start=start, end=end)
     return {"params": params, "metrics": metrics, "result": result}
 
 

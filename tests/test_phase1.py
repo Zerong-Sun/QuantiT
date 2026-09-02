@@ -81,3 +81,19 @@ class TestBacktester:
         metrics = compute_metrics(result)
         assert "win_rate" in metrics
         assert metrics["total_trades"] == float(len(result.trades))
+
+    def test_idle_book_sharpe_is_finite(self) -> None:
+        from quantit.strategy.base import Context, Strategy
+
+        class Idle(Strategy):
+            def on_bar(self, context: Context, bar: pd.Series) -> None:
+                return
+
+        data = _make_ohlcv(80)
+        result = Backtester(initial_cash=100_000).run(Idle(), data, symbol="CASH")
+        metrics = compute_metrics(result)
+        assert metrics["total_trades"] == 0
+        assert abs(metrics["sharpe_ratio"]) < 10
+        import math
+
+        assert math.isfinite(metrics["sharpe_ratio"])
