@@ -30,13 +30,21 @@ export function PortfolioPage() {
       setLoading(true);
       setError("");
     }
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 25_000);
     try {
-      const next = await api.portfolio();
+      const next = await api.portfolio(ctrl.signal);
       setData(next);
       setMarket((prev) => (next.books.some((b) => b.market_id === prev) ? prev : next.books[0]?.market_id ?? "us"));
+      setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (!opts?.quiet) {
+        const message = err instanceof Error ? err.message : String(err);
+        const aborted = (err instanceof DOMException && err.name === "AbortError") || /abort/i.test(message);
+        setError(aborted ? "持仓数据加载超时，请刷新重试。" : message);
+      }
     } finally {
+      window.clearTimeout(timer);
       if (!opts?.quiet) {
         setLoading(false);
       }

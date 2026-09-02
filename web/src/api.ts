@@ -14,13 +14,28 @@ import type {
   PortfolioOverview,
 } from "./types";
 
-async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const res = await fetch(path, { signal });
   if (!res.ok) {
     const detail = await res.text();
-    throw new Error(detail || res.statusText);
+    throw new Error(formatApiError(detail, res.status));
   }
   return res.json() as Promise<T>;
+}
+
+function formatApiError(detail: string, status: number): string {
+  try {
+    const body = JSON.parse(detail) as { detail?: unknown };
+    if (body.detail === "Not Found" || status === 404) {
+      return "持仓接口未加载。请重启 quantit serve 后刷新。";
+    }
+    if (typeof body.detail === "string" && body.detail.trim()) {
+      return body.detail;
+    }
+  } catch {
+    /* raw text */
+  }
+  return detail || `HTTP ${status}`;
 }
 
 export const api = {
@@ -40,7 +55,7 @@ export const api = {
   accounts: () => getJson<Account[]>("/api/v1/accounts"),
   positions: (market?: string) =>
     getJson<Position[]>(market ? `/api/v1/positions?market=${encodeURIComponent(market)}` : "/api/v1/positions"),
-  portfolio: () => getJson<PortfolioOverview>("/api/v1/portfolio"),
+  portfolio: (signal?: AbortSignal) => getJson<PortfolioOverview>("/api/v1/portfolio", signal),
   orders: (market?: string) =>
     getJson<Order[]>(market ? `/api/v1/orders?market=${encodeURIComponent(market)}` : "/api/v1/orders"),
   trades: (market?: string) =>

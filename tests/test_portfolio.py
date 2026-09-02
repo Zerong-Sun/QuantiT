@@ -188,11 +188,11 @@ class TestPortfolioRoute:
         assert resp.status_code == 200
         data = resp.json()
         pos = data["positions"][0]
-        assert pos["last"] is None
-        assert pos["unrealized"] is None
-        assert pos["market_value"] == pytest.approx(0.0)
+        assert pos["last"] == pytest.approx(100.0)
+        assert pos["unrealized"] == pytest.approx(0.0)
+        assert pos["market_value"] == pytest.approx(800.0)
         us = next(b for b in data["books"] if b["market_id"] == "us")
-        assert us["invested"] == pytest.approx(0.0)
+        assert us["invested"] == pytest.approx(800.0)
 
     def test_portfolio_page_is_served(self, client: TestClient) -> None:
         resp = client.get("/portfolio")

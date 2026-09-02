@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
+from quantit.data.cache import DataCache
+from quantit.data.provider import YahooFinanceProvider
 from quantit.markets.assets import asset_class, multiplier
 from quantit.paper.broker import PaperBroker
 from quantit.paper.models import Account, Position, Trade
+
+_FETCH_TIMEOUT_SEC = 5.0
+_OVERVIEW_BUDGET_SEC = 20.0
 
 
 def _period_starts(now: datetime) -> dict[str, datetime]:
@@ -43,7 +48,17 @@ def _normalize_frame(df: pd.DataFrame) -> pd.DataFrame:
     return dated.sort_index()
 
 
-def _load_frame(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
+def _cached_frame(symbol: str) -> pd.DataFrame | None:
+    try:
+        cached = DataCache().get(symbol, "1d")
+    except Exception:
+        return None
+    if cached is None or cached.empty or "close" not in cached.columns:
+        return None
+    return _normalize_frame(cached)
+
+
+def _fetch_bars(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
     end = pd.Timestamp(now).normalize() + pd.Timedelta(days=2)
     start = end - pd.Timedelta(days=45)
     try:
@@ -53,6 +68,27 @@ def _load_frame(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
     if df is None or df.empty or "close" not in df.columns:
         return None
     return _normalize_frame(df)
+
+
+def _is_yahoo(adapter) -> bool:
+    return isinstance(getattr(adapter, "provider", None), YahooFinanceProvider)
+
+
+def _load_frame(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
+    cached = _cached_frame(symbol) if _is_yahoo(adapter) else None
+    if cached is not None:
+        last_idx = pd.Timestamp(cached.index.max())
+        if last_idx >= pd.Timestamp(now).normalize() - pd.Timedelta(days=4):
+            return cached
+    fetched = _fetch_bars(adapter, symbol, now)
+    if fetched is not None:
+        if _is_yahoo(adapter):
+            try:
+                DataCache().set(symbol, fetched, "1d")
+            except Exception:
+                pass
+        return fetched
+    return cached
 
 
 def _last_prev(frame: pd.DataFrame | None) -> tuple[float | None, float | None]:
@@ -129,10 +165,12 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
     frames: dict[tuple[str, str], pd.DataFrame] = {}
 
     symbols_needed: dict[str, set[str]] = {a.market_id: set() for a in accounts}
+    month_start = starts["month"]
     for pos in positions:
         symbols_needed.setdefault(pos.market_id, set()).add(pos.symbol)
     for trade in trades:
-        symbols_needed.setdefault(trade.market_id, set()).add(trade.symbol)
+        if trade.timestamp >= month_start:
+            symbols_needed.setdefault(trade.market_id, set()).add(trade.symbol)
 
     jobs: list[tuple[str, str, Any]] = []
     for market_id, symbols in symbols_needed.items():
@@ -148,8 +186,19 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
         return market_id, symbol, _load_frame(adapter, symbol, now)
 
     workers = min(8, max(1, len(jobs)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        loaded = list(pool.map(_job, jobs)) if jobs else []
+    loaded: list[tuple[str, str, pd.DataFrame | None]] = []
+    if jobs:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        try:
+            futures = [pool.submit(_job, job) for job in jobs]
+            done, _pending = wait(futures, timeout=_OVERVIEW_BUDGET_SEC)
+            for fut in done:
+                try:
+                    loaded.append(fut.result(timeout=0.1))
+                except Exception:
+                    continue
+        finally:
+            pool.shutdown(wait=False)
     for market_id, symbol, frame in loaded:
         if frame is not None:
             frames[(market_id, symbol)] = frame
@@ -166,6 +215,12 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
         market_id = account.market_id
         qty_now = _qty_map(positions, market_id)
         now_prices = {s: last_px[(market_id, s)] for s in qty_now if (market_id, s) in last_px}
+        for pos in positions:
+            if pos.market_id != market_id or pos.symbol in now_prices:
+                continue
+            cost_px = _finite(float(pos.avg_cost))
+            if cost_px is not None:
+                now_prices[pos.symbol] = cost_px
         invested = _marked(market_id, qty_now, now_prices)
         equity = float(account.cash) + invested
         book_pnls: dict[str, float] = {}
@@ -203,6 +258,8 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                 continue
             last = last_px.get((market_id, pos.symbol))
             prev = prev_px.get((market_id, pos.symbol))
+            if last is None:
+                last = _finite(float(pos.avg_cost)) or None
             mult = multiplier(market_id, pos.symbol)
             cost = _notional(market_id, pos.symbol, pos.quantity, pos.avg_cost)
             marked = last is not None
