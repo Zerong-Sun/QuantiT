@@ -149,14 +149,14 @@ def run_research(
         study = _combine(studies)
 
     dest = Path(report_path) if report_path else research_dir() / f"{strategy_id}_study.html"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    render_study(study, dest)
-    print(f"Report: {dest}")
     print(f"OOS Sharpe {study.oos_sharpe:.2f} vs buy-and-hold {study.bh_sharpe:.2f}")
     print(f"Gate: {'PASS' if study.passed else 'FAIL'}")
     if study.gate and study.gate.reasons:
         for reason in study.gate.reasons:
             print(f"  - {reason}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    render_study(study, dest)
+    print(f"Report: {dest}")
     if promote:
         written = maybe_promote(strategy_id, study.best_params, study.gate) if study.gate else None
         if written is None:
