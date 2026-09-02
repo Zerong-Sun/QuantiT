@@ -62,6 +62,23 @@ def _is_cn_symbol(symbol: str) -> bool:
     return upper.endswith(".SS") or upper.endswith(".SZ") or upper.endswith(".SH")
 
 
+def _load_one(loader: Any, fetch: str, start: str, end: str, attempts: int = 4) -> pd.DataFrame | None:
+    import time
+
+    last_err: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            df = loader.load(fetch, start, end)
+            if df is not None and not df.empty:
+                return df
+        except Exception as exc:
+            last_err = exc
+        time.sleep(2.0 * (attempt + 1))
+    if last_err is not None:
+        print(f"Skip {fetch}: {last_err}")
+    return None
+
+
 def _load_frames(symbols: list[str], start: str, end: str) -> dict[str, pd.DataFrame]:
     from quantit.data.cn_csv import CompositeCNProvider
     from quantit.data.loader import DataLoader
@@ -73,16 +90,18 @@ def _load_frames(symbols: list[str], start: str, end: str) -> dict[str, pd.DataF
         loader = DataLoader()
         for sym in us_hk:
             fetch = YAHOO_ALIASES.get(sym, sym)
-            try:
-                df = loader.load(fetch, start, end)
-            except Exception:
-                continue
-            if df is not None and not df.empty:
+            df = _load_one(loader, fetch, start, end)
+            if df is not None:
                 frames[sym] = df
     if cn:
-        frames.update(
-            DataLoader(provider=CompositeCNProvider()).load_multi(cn, start, end, skip_missing=True)
-        )
+        loader = DataLoader(provider=CompositeCNProvider())
+        for sym in cn:
+            df = _load_one(loader, sym, start, end)
+            if df is not None:
+                frames[sym] = df
+    missing = [s for s in symbols if s not in frames]
+    if missing:
+        print("Missing after retries: " + ", ".join(missing))
     return frames
 
 
