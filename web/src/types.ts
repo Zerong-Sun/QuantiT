@@ -161,3 +161,40 @@ export interface Runner {
   watchlists: Record<string, string[]>;
   actions: RunnerAction[];
 }
+
+export interface PortfolioPosition {
+  market_id: MarketId;
+  symbol: string;
+  quantity: number;
+  avg_cost: number;
+  last: number | null;
+  prev_close: number | null;
+  multiplier: number;
+  asset_class: string;
+  currency: string;
+  market_value: number;
+  cost_value: number;
+  unrealized: number | null;
+  unrealized_pct: number | null;
+  day_pnl: number | null;
+  weight: number;
+}
+
+export interface PortfolioBook {
+  market_id: MarketId;
+  currency: string;
+  cash: number;
+  invested: number;
+  equity: number;
+  initial_cash: number;
+  total_pnl: number;
+  day_pnl: number;
+  week_pnl: number;
+  month_pnl: number;
+}
+
+export interface PortfolioOverview {
+  asof: string;
+  books: PortfolioBook[];
+  positions: PortfolioPosition[];
+}

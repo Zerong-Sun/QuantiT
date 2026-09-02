@@ -50,9 +50,10 @@ export function KLineChart({ bars }: { bars: Bar[] }) {
       }
       chart.applyOptions({ width: host.current.clientWidth, height: host.current.clientHeight });
     };
-    window.addEventListener("resize", onResize);
+    const observer = new ResizeObserver(onResize);
+    observer.observe(host.current);
     return () => {
-      window.removeEventListener("resize", onResize);
+      observer.disconnect();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;

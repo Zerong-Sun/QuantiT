@@ -20,6 +20,7 @@ from quantit.api.schemas import (
     NoteOut,
     OrderIn,
     OrderOut,
+    PortfolioOut,
     PositionOut,
     QuoteOut,
     RunnerOut,
@@ -32,6 +33,7 @@ from quantit.markets.registry import MarketRegistry, get_registry
 from quantit.paper.broker import PaperBroker
 from quantit.paper.db import create_session, session_on
 from quantit.paper.notes import NoteBook
+from quantit.paper.overview import build_overview
 from quantit.paper.runner import PaperRunner, load_cn_theme_scores, load_hk_theme_scores
 from quantit.markets.derivatives import yahoo_atm_call
 from quantit.strategy.catalog import get_strategy, list_strategies
@@ -299,6 +301,10 @@ def create_app(
             )
             for p in broker.list_positions(market)
         ]
+
+    @app.get("/api/v1/portfolio", response_model=PortfolioOut)
+    def portfolio() -> PortfolioOut:
+        return PortfolioOut(**build_overview(broker))
 
     @app.post("/api/v1/orders", response_model=OrderOut)
     def place_order(body: OrderIn) -> OrderOut:

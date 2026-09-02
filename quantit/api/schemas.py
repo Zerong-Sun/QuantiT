@@ -184,3 +184,40 @@ class RunnerOut(BaseModel):
     allowed: dict
     watchlists: dict
     actions: List[RunnerActionOut]
+
+
+class PortfolioPositionOut(BaseModel):
+    market_id: str
+    symbol: str
+    quantity: int
+    avg_cost: float
+    last: Optional[float] = None
+    prev_close: Optional[float] = None
+    multiplier: int = 1
+    asset_class: str = "equity"
+    currency: str
+    market_value: float
+    cost_value: float
+    unrealized: Optional[float] = None
+    unrealized_pct: Optional[float] = None
+    day_pnl: Optional[float] = None
+    weight: float = 0.0
+
+
+class PortfolioBookOut(BaseModel):
+    market_id: str
+    currency: str
+    cash: float
+    invested: float
+    equity: float
+    initial_cash: float
+    total_pnl: float
+    day_pnl: float
+    week_pnl: float
+    month_pnl: float
+
+
+class PortfolioOut(BaseModel):
+    asof: str
+    books: List[PortfolioBookOut]
+    positions: List[PortfolioPositionOut]

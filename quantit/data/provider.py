@@ -35,7 +35,10 @@ class YahooFinanceProvider(DataProvider):
         import yfinance as yf
 
         ticker = yf.Ticker(symbol)
-        df = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+        try:
+            df = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+        except Exception as exc:
+            raise ValueError(f"No data returned for {symbol} ({start} to {end}): {exc}") from exc
 
         if df.empty:
             raise ValueError(f"No data returned for {symbol} ({start} to {end})")

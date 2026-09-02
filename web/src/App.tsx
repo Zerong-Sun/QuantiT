@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./api";
 import { KLineChart } from "./components/KLineChart";
 import { NotesBoard } from "./components/NotesBoard";
+import { PortfolioPage } from "./components/PortfolioPage";
 import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
+import { ResizableCard } from "./components/ResizableCard";
 import { StrategyDesk } from "./components/StrategyDesk";
 import { DEFAULT_SYMBOL, marketUi } from "./markets/config";
 import type {
@@ -22,6 +24,15 @@ import type {
 
 const POLL_MS = 15_000;
 type DeskTab = "blotter" | "strategies" | "notes";
+type Page = "desk" | "portfolio";
+
+function readPage(): Page {
+  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path.endsWith("/portfolio") || window.location.hash === "#/portfolio") {
+    return "portfolio";
+  }
+  return "desk";
+}
 
 function fmt(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) {
@@ -53,41 +64,71 @@ export function App() {
   const [message, setMessage] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
+  const [symbolLoading, setSymbolLoading] = useState(true);
+  const [blotterLoading, setBlotterLoading] = useState(true);
+  const [deskLoading, setDeskLoading] = useState(true);
+  const [page, setPage] = useState<Page>(readPage);
 
   const ui = marketUi(market);
   const account = accounts.find((a) => a.market_id === market);
   const currentMarket = markets.find((m) => m.id === market);
 
-  async function loadBlotter() {
-    const [acc, pos, ord, tr, run] = await Promise.all([
-      api.accounts(),
-      api.positions(),
-      api.orders(),
-      api.trades(),
-      api.runner(),
-    ]);
-    setAccounts(acc);
-    setPositions(pos);
-    setOrders(ord);
-    setTrades(tr);
-    setRunner(run);
-  }
-
-  async function loadDesk() {
-    const [cats, board] = await Promise.all([api.strategies(), api.notes()]);
-    setStrategies(cats);
-    setNotes(board);
-    setStrategyId((prev) => {
-      if (prev && cats.some((s) => s.id === prev)) {
-        return prev;
+  async function loadBlotter(opts?: { quiet?: boolean }) {
+    if (!opts?.quiet) {
+      setBlotterLoading(true);
+    }
+    try {
+      const [acc, pos, ord, tr, run] = await Promise.all([
+        api.accounts(),
+        api.positions(),
+        api.orders(),
+        api.trades(),
+        api.runner(),
+      ]);
+      setAccounts(acc);
+      setPositions(pos);
+      setOrders(ord);
+      setTrades(tr);
+      setRunner(run);
+    } finally {
+      if (!opts?.quiet) {
+        setBlotterLoading(false);
       }
-      const match = cats.find((s) => s.markets.includes(market));
-      return match?.id ?? cats[0]?.id ?? "";
-    });
+    }
   }
 
-  async function loadSymbol(nextMarket: string, nextSymbol: string, nextInterval = interval) {
+  async function loadDesk(opts?: { quiet?: boolean }) {
+    if (!opts?.quiet) {
+      setDeskLoading(true);
+    }
+    try {
+      const [cats, board] = await Promise.all([api.strategies(), api.notes()]);
+      setStrategies(cats);
+      setNotes(board);
+      setStrategyId((prev) => {
+        if (prev && cats.some((s) => s.id === prev)) {
+          return prev;
+        }
+        const match = cats.find((s) => s.markets.includes(market));
+        return match?.id ?? cats[0]?.id ?? "";
+      });
+    } finally {
+      if (!opts?.quiet) {
+        setDeskLoading(false);
+      }
+    }
+  }
+
+  async function loadSymbol(
+    nextMarket: string,
+    nextSymbol: string,
+    nextInterval = interval,
+    opts?: { quiet?: boolean },
+  ) {
     setError("");
+    if (!opts?.quiet) {
+      setSymbolLoading(true);
+    }
     try {
       const [inst, q, b, sig] = await Promise.all([
         api.instrument(nextMarket, nextSymbol),
@@ -103,8 +144,28 @@ export function App() {
       setQuery(inst.symbol);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      if (!opts?.quiet) {
+        setSymbolLoading(false);
+      }
     }
   }
+
+  function goPage(next: Page) {
+    const url = next === "portfolio" ? "/portfolio" : "/";
+    window.history.pushState({ page: next }, "", url);
+    setPage(next);
+  }
+
+  useEffect(() => {
+    const onPop = () => setPage(readPage());
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("hashchange", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      window.removeEventListener("hashchange", onPop);
+    };
+  }, []);
 
   useEffect(() => {
     api.markets().then((list) => {
@@ -115,21 +176,27 @@ export function App() {
       setSymbol(sym);
       setQuery(sym);
       return loadSymbol(first, sym);
-    }).catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+    }).catch((err: unknown) => {
+      setError(err instanceof Error ? err.message : String(err));
+      setSymbolLoading(false);
+    });
     loadBlotter().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
     loadDesk().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
-      if (symbol) {
-        loadSymbol(market, symbol, interval).catch(() => undefined);
+      if (page !== "desk") {
+        return;
       }
-      loadBlotter().catch(() => undefined);
+      if (symbol) {
+        loadSymbol(market, symbol, interval, { quiet: true }).catch(() => undefined);
+      }
+      loadBlotter({ quiet: true }).catch(() => undefined);
       api.notes().then(setNotes).catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(timer);
-  }, [market, symbol, interval]);
+  }, [page, market, symbol, interval]);
 
   async function onSearch(event: FormEvent) {
     event.preventDefault();
@@ -186,27 +253,38 @@ export function App() {
     <div className="terminal">
       <header className="topbar">
         <div className="brand">QuantiT <span>paper</span></div>
-        <div className="markets">
-          {markets.map((m) => (
-            <button
-              key={m.id}
-              className={m.id === market ? "active" : ""}
-              onClick={() => switchMarket(m.id)}
-            >
-              {marketUi(m.id).label}
-            </button>
-          ))}
+        <div className="pages">
+          <button className={page === "desk" ? "active" : ""} onClick={() => goPage("desk")}>Desk</button>
+          <button className={page === "portfolio" ? "active" : ""} onClick={() => goPage("portfolio")}>Portfolio</button>
         </div>
-        <form className="search" onSubmit={onSearch}>
-          <input value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="Symbol" />
-          <button type="submit">Go</button>
-        </form>
+        {page === "desk" ? (
+          <>
+            <div className="markets">
+              {markets.map((m) => (
+                <button
+                  key={m.id}
+                  className={m.id === market ? "active" : ""}
+                  onClick={() => switchMarket(m.id)}
+                >
+                  {marketUi(m.id).label}
+                </button>
+              ))}
+            </div>
+            <form className="search" onSubmit={onSearch}>
+              <input value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="Symbol" />
+              <button type="submit" disabled={symbolLoading}>
+                {symbolLoading ? <span className="spinner" aria-label="loading" /> : "Go"}
+              </button>
+            </form>
+          </>
+        ) : null}
         <div className="session">
           {currentMarket ? `${currentMarket.session_hours} · delayed` : "delayed quotes"}
           {currentMarket?.allowed_asset_classes?.length ? ` · ${currentMarket.allowed_asset_classes.join("/")}` : ""}
         </div>
       </header>
-      {runner ? (
+      {page === "portfolio" ? <PortfolioPage /> : null}
+      {page === "desk" && runner ? (
         <div className="runner-bar">
           <span className={runner.running ? "live" : "off"}>{runner.running ? "LIVE" : "PAUSED"}</span>
           <span>US {fmt(runner.cash?.us ?? accounts.find((a) => a.market_id === "us")?.cash, 0)} USD · seed {fmt(runner.seed_cash?.us, 0)}</span>
@@ -227,8 +305,9 @@ export function App() {
         </div>
       ) : null}
 
-      <main className="workspace">
-        <section className="chart-col">
+      {page === "desk" ? (
+      <main className="dashboard">
+        <ResizableCard id="chart" className="chart" loading={symbolLoading} minWidth={360} minHeight={280}>
           <div className="quote-bar">
             <div>
               <h1>{instrument?.symbol ?? symbol}</h1>
@@ -247,6 +326,7 @@ export function App() {
               <span>Vol {fmt(quote?.volume, 0)}</span>
             </div>
             <div className="intervals">
+              {symbolLoading ? <span className="spinner" aria-label="loading" /> : null}
               {(currentMarket?.intervals ?? ["1d", "1h", "5m"]).map((iv) => (
                 <button
                   key={iv}
@@ -264,10 +344,9 @@ export function App() {
           <ReasonBanner signals={signals?.signals ?? []} />
           <KLineChart bars={bars} />
           {error ? <div className="banner error">{error}</div> : null}
-        </section>
+        </ResizableCard>
 
-        <aside className="ticket">
-          <h2>Order</h2>
+        <ResizableCard id="order" title="Order" className="ticket" loading={symbolLoading} minWidth={240} minHeight={280}>
           <p className="hint">{ui.lotHint}{currentMarket?.t_plus ? ` · T+${currentMarket.t_plus}` : ""}</p>
           <label>
             Quantity
@@ -317,10 +396,8 @@ export function App() {
               </dl>
             </div>
           ) : null}
-        </aside>
-      </main>
+        </ResizableCard>
 
-      <footer className="desk">
         <div className="desk-tabs">
           {([
             ["blotter", "Blotter"],
@@ -332,82 +409,82 @@ export function App() {
             </button>
           ))}
         </div>
-        <div className="desk-body">
-          {desk === "blotter" ? (
-            <div className="blotter">
-              <div>
-                <h2>Positions</h2>
-                <table>
-                  <thead>
-                    <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
-                  </thead>
-                  <tbody>
-                    {positions.length === 0 ? (
-                      <tr><td colSpan={4}>No positions</td></tr>
-                    ) : positions.map((p) => (
-                      <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
-                        <td>{p.market_id}</td>
-                        <td>{p.symbol}</td>
-                        <td>{p.quantity}</td>
-                        <td>{fmt(p.avg_cost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2>Trades</h2>
-                <table>
-                  <thead>
-                    <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
-                  </thead>
-                  <tbody>
-                    {trades.length === 0 ? (
-                      <tr><td colSpan={5}>No trades</td></tr>
-                    ) : trades.map((t) => (
-                      <tr key={t.id}>
-                        <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
-                        <td>{t.symbol}</td>
-                        <td className={t.side}>{t.side}</td>
-                        <td>{t.quantity}</td>
-                        <td>{fmt(t.price)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div>
-                <h2>Orders</h2>
-                <table>
-                  <thead>
-                    <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
-                  </thead>
-                  <tbody>
-                    {orders.length === 0 ? (
-                      <tr><td colSpan={5}>No orders</td></tr>
-                    ) : orders.map((o) => (
-                      <tr key={o.id} onClick={() => setSelectedOrder(o)}>
-                        <td>{o.id}</td>
-                        <td>{o.symbol}</td>
-                        <td>{o.status}</td>
-                        <td>{o.quantity}</td>
-                        <td className="why">{o.rationale ?? "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
-          {desk === "strategies" ? (
+
+        {desk === "blotter" ? (
+          <>
+            <ResizableCard id="positions" title="Positions" className="pane" loading={blotterLoading}>
+              <table>
+                <thead>
+                  <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
+                </thead>
+                <tbody>
+                  {positions.length === 0 ? (
+                    <tr><td colSpan={4}>No positions</td></tr>
+                  ) : positions.map((p) => (
+                    <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
+                      <td>{p.market_id}</td>
+                      <td>{p.symbol}</td>
+                      <td>{p.quantity}</td>
+                      <td>{fmt(p.avg_cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ResizableCard>
+            <ResizableCard id="trades" title="Trades" className="pane" loading={blotterLoading}>
+              <table>
+                <thead>
+                  <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
+                </thead>
+                <tbody>
+                  {trades.length === 0 ? (
+                    <tr><td colSpan={5}>No trades</td></tr>
+                  ) : trades.map((t) => (
+                    <tr key={t.id}>
+                      <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
+                      <td>{t.symbol}</td>
+                      <td className={t.side}>{t.side}</td>
+                      <td>{t.quantity}</td>
+                      <td>{fmt(t.price)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ResizableCard>
+            <ResizableCard id="orders" title="Orders" className="pane" loading={blotterLoading}>
+              <table>
+                <thead>
+                  <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
+                </thead>
+                <tbody>
+                  {orders.length === 0 ? (
+                    <tr><td colSpan={5}>No orders</td></tr>
+                  ) : orders.map((o) => (
+                    <tr key={o.id} onClick={() => setSelectedOrder(o)}>
+                      <td>{o.id}</td>
+                      <td>{o.symbol}</td>
+                      <td>{o.status}</td>
+                      <td>{o.quantity}</td>
+                      <td className="why">{o.rationale ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ResizableCard>
+          </>
+        ) : null}
+        {desk === "strategies" ? (
+          <ResizableCard id="strategies" title="Strategies" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
             <StrategyDesk
               strategies={strategies}
               selectedId={strategyId}
               onSelect={setStrategyId}
               market={market}
             />
-          ) : null}
-          {desk === "notes" ? (
+          </ResizableCard>
+        ) : null}
+        {desk === "notes" ? (
+          <ResizableCard id="notes" title="Notes" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
             <NotesBoard
               notes={notes}
               market={market}
@@ -425,9 +502,10 @@ export function App() {
                 setNotes(await api.notes());
               }}
             />
-          ) : null}
-        </div>
-      </footer>
+          </ResizableCard>
+        ) : null}
+      </main>
+      ) : null}
     </div>
   );
 }

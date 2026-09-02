@@ -11,6 +11,7 @@ import type {
   Strategy,
   Trade,
   Runner,
+  PortfolioOverview,
 } from "./types";
 
 async function getJson<T>(path: string): Promise<T> {
@@ -39,6 +40,7 @@ export const api = {
   accounts: () => getJson<Account[]>("/api/v1/accounts"),
   positions: (market?: string) =>
     getJson<Position[]>(market ? `/api/v1/positions?market=${encodeURIComponent(market)}` : "/api/v1/positions"),
+  portfolio: () => getJson<PortfolioOverview>("/api/v1/portfolio"),
   orders: (market?: string) =>
     getJson<Order[]>(market ? `/api/v1/orders?market=${encodeURIComponent(market)}` : "/api/v1/orders"),
   trades: (market?: string) =>
