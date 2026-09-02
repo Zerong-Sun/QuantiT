@@ -8,7 +8,7 @@ import math
 import pandas as pd
 import pytest
 
-from quantit.research.gates import evaluate_gates
+from quantit.research.gates import evaluate_gates, fold_regime
 from quantit.research.params import clear_params_cache, load_active_params
 from quantit.research.promote import maybe_promote
 from quantit.research.search import grid_search
@@ -109,6 +109,45 @@ def test_promote_tsmom_writes_yaml(tmp_path: Path) -> None:
     payload = load_active_params(path)
     assert payload["us_primary"] == "tsmom"
     assert payload["strategies"]["tsmom"]["lookback"] == 252
+
+
+def test_gate_allows_lagging_buy_hold_when_drawdown_ok() -> None:
+    gate = evaluate_gates(
+        oos_sharpe=0.4,
+        oos_drawdown=-0.12,
+        oos_trades=10,
+        buy_hold_sharpe=1.1,
+        buy_hold_drawdown=-0.20,
+    )
+    assert gate.passed
+
+
+def test_gate_fails_non_positive_sharpe() -> None:
+    gate = evaluate_gates(
+        oos_sharpe=0.0,
+        oos_drawdown=-0.05,
+        oos_trades=10,
+        buy_hold_sharpe=1.0,
+        buy_hold_drawdown=-0.40,
+    )
+    assert not gate.passed
+
+
+def test_gate_drawdown_ok_if_better_than_buy_hold() -> None:
+    gate = evaluate_gates(
+        oos_sharpe=0.5,
+        oos_drawdown=-0.30,
+        oos_trades=10,
+        buy_hold_sharpe=-0.2,
+        buy_hold_drawdown=-0.40,
+    )
+    assert gate.passed
+
+
+def test_fold_regime_tags() -> None:
+    assert fold_regime(0.8) == "bull"
+    assert fold_regime(-0.1) == "bear"
+    assert fold_regime(0.2) == "flat"
 
 
 def test_us_book_cannot_promote(tmp_path: Path) -> None:
@@ -266,4 +305,38 @@ def test_tsmom_report_includes_us_book_column() -> None:
     )
     html = render_study(study)
     assert "US book" in html or "us_book" in html
+    assert "OOS window" in html
+    assert "Regime" in html
     assert study.folds[0].us_book_metrics
+    assert study.folds[0].test_start
+    assert study.folds[0].regime in {"bull", "bear", "flat"}
+    assert study.bh_drawdown <= 0
+
+
+def test_write_folds_csv_has_regime_columns(tmp_path: Path) -> None:
+    from quantit.research.report import write_folds_csv
+
+    data = _trend(220)
+    study = walk_forward(
+        "tsmom",
+        data,
+        symbol="AAA",
+        train=80,
+        test=40,
+        step=40,
+        grid=[{"lookback": 40, "skip": 5, "target_vol": 0.15, "vol_lookback": 10}],
+    )
+    dest = tmp_path / "folds.csv"
+    write_folds_csv(study, dest)
+    text = dest.read_text(encoding="utf-8")
+    header = text.splitlines()[0]
+    for col in ("test_start", "test_end", "regime", "oos_calmar", "bh_dd"):
+        assert col in header
+
+
+def test_default_research_symbols_are_us_quality() -> None:
+    from quantit.research.universes import US_QUALITY, default_research_symbols
+
+    assert default_research_symbols() == list(US_QUALITY)
+    assert "NVDA" not in default_research_symbols()
+    assert "QQQ" not in default_research_symbols()

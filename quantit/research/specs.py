@@ -27,12 +27,18 @@ class StrategySpec:
 
 def _tsmom_grid() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for lookback in (126, 252):
-        for skip in (0, 21):
-            if skip >= lookback:
-                continue
-            for target_vol in (0.10, 0.15):
-                rows.append({"lookback": lookback, "skip": skip, "target_vol": target_vol})
+    lookback = 252
+    for skip in (0, 21):
+        for target_vol in (0.10, 0.15):
+            for risk_off_scale in (0.0, 0.3, 0.5):
+                rows.append(
+                    {
+                        "lookback": lookback,
+                        "skip": skip,
+                        "target_vol": target_vol,
+                        "risk_off_scale": risk_off_scale,
+                    }
+                )
     return rows
 
 

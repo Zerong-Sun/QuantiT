@@ -20,10 +20,10 @@ def _cmd_backtest(args: argparse.Namespace) -> None:
 
 
 def _cmd_research(args: argparse.Namespace) -> None:
-    from quantit.paper.capital import US_WATCHLIST
     from quantit.research.run import run_research
+    from quantit.research.universes import default_research_symbols
 
-    symbols = [s.strip() for s in (args.symbols or ",".join(US_WATCHLIST)).split(",") if s.strip()]
+    symbols = [s.strip() for s in (args.symbols or ",".join(default_research_symbols())).split(",") if s.strip()]
     run_research(
         args.strategy,
         symbols=symbols,
@@ -184,8 +184,8 @@ def main() -> None:
 
     research = sub.add_parser("research", help="Walk-forward parameter study (OOS vs buy-and-hold)")
     research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation, cn_etf_rotation")
-    research.add_argument("--symbols", default="", help="Comma-separated US symbols (default: paper watchlist)")
-    research.add_argument("--start", default="2018-01-01")
+    research.add_argument("--symbols", default="", help="Comma-separated symbols (default: US quality book, not Nasdaq)")
+    research.add_argument("--start", default="2012-01-01")
     research.add_argument("--end", default="2024-12-31")
     research.add_argument("--train", type=int, default=504)
     research.add_argument("--test", type=int, default=126)

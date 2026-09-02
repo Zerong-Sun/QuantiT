@@ -232,8 +232,34 @@ class PaperRunner:
             why = book["reason"]
             if book["action"] == "sell":
                 if qty_held > 0:
-                    order = self.broker.place_order("us", symbol, "sell", qty_held, rationale=why)
-                    out.append(self._record(order, why))
+                    if primary == "tsmom":
+                        last = float(bars["close"].iloc[-1])
+                        values = book.get("values") or {}
+                        scale = float(values.get("risk_off_scale") if values.get("risk_off_scale") is not None else 0.3)
+                        if last > 0 and scale > 0:
+                            vol = coerce_vol(values.get("realized_vol"), 0.15)
+                            target_vol = coerce_vol(values.get("target_vol"), 0.15)
+                            account = self.broker.get_account("us")
+                            equity = account.cash + last * qty_held
+                            full = tsmom_size(
+                                equity=equity,
+                                price=last,
+                                realized_vol=vol,
+                                target_vol=target_vol,
+                                vol_floor=0.05,
+                                max_position_pct=US_SLOT_PCT,
+                            )
+                            target = int(scale * full)
+                            cut = qty_held - target
+                            if cut > 0:
+                                order = self.broker.place_order("us", symbol, "sell", cut, rationale=why)
+                                out.append(self._record(order, why))
+                        else:
+                            order = self.broker.place_order("us", symbol, "sell", qty_held, rationale=why)
+                            out.append(self._record(order, why))
+                    else:
+                        order = self.broker.place_order("us", symbol, "sell", qty_held, rationale=why)
+                        out.append(self._record(order, why))
                 out.extend(self._close_us_options(symbol, why))
                 self._mark("us", symbol)
                 continue

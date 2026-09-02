@@ -1,7 +1,8 @@
-"""HTML study report: IS/OOS folds vs buy-and-hold."""
+"""HTML and CSV study reports: IS/OOS folds vs buy-and-hold."""
 
 from __future__ import annotations
 
+import csv
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,67 @@ def _num(value: float) -> str:
     return f"{value:.2f}"
 
 
+def _calmar(metrics: dict) -> float:
+    return float(metrics.get("calmar_ratio") or 0.0)
+
+
+def write_folds_csv(study: StudyResult, output_path: str | Path) -> Path:
+    dest = Path(output_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "fold",
+        "test_start",
+        "test_end",
+        "regime",
+        "params",
+        "is_sharpe",
+        "oos_sharpe",
+        "oos_dd",
+        "oos_calmar",
+        "oos_trades",
+        "bh_sharpe",
+        "bh_dd",
+        "bh_calmar",
+        "us_book_sharpe",
+    ]
+    with dest.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for i, fold in enumerate(study.folds, start=1):
+            writer.writerow(
+                {
+                    "fold": i,
+                    "test_start": fold.test_start,
+                    "test_end": fold.test_end,
+                    "regime": fold.regime,
+                    "params": fold.params,
+                    "is_sharpe": fold.is_metrics.get("sharpe_ratio") or 0,
+                    "oos_sharpe": fold.oos_metrics.get("sharpe_ratio") or 0,
+                    "oos_dd": fold.oos_metrics.get("max_drawdown") or 0,
+                    "oos_calmar": _calmar(fold.oos_metrics),
+                    "oos_trades": fold.oos_metrics.get("total_trades") or 0,
+                    "bh_sharpe": fold.bh_metrics.get("sharpe_ratio") or 0,
+                    "bh_dd": fold.bh_metrics.get("max_drawdown") or 0,
+                    "bh_calmar": _calmar(fold.bh_metrics),
+                    "us_book_sharpe": (fold.us_book_metrics or {}).get("sharpe_ratio") or 0,
+                }
+            )
+    return dest
+
+
+def regime_summary(study: StudyResult) -> dict[str, float]:
+    """Mean OOS Sharpe by bull/bear/flat fold tags."""
+    buckets: dict[str, list[float]] = {"bull": [], "bear": [], "flat": []}
+    for fold in study.folds:
+        tag = fold.regime if fold.regime in buckets else "flat"
+        buckets[tag].append(float(fold.oos_metrics.get("sharpe_ratio") or 0.0))
+    out: dict[str, float] = {}
+    for tag, values in buckets.items():
+        out[tag] = float(sum(values) / len(values)) if values else 0.0
+        out[f"{tag}_n"] = float(len(values))
+    return out
+
+
 def render_study(study: StudyResult, output_path: str | Path | None = None) -> str:
     gate = study.gate
     status = "PASS" if study.passed else "FAIL"
@@ -28,15 +90,22 @@ def render_study(study: StudyResult, output_path: str | Path | None = None) -> s
         ub_cell = ""
         if show_ub:
             ub_cell = f"<td>{_num(float(fold.us_book_metrics.get('sharpe_ratio') or 0))}</td>"
+        oos_dd = float(fold.oos_metrics.get("max_drawdown") or 0)
+        bh_dd = float(fold.bh_metrics.get("max_drawdown") or 0)
         rows += f"""
         <tr>
             <td>{i}</td>
+            <td>{fold.test_start} → {fold.test_end}</td>
+            <td>{fold.regime}</td>
             <td>{fold.params}</td>
             <td>{_num(float(fold.is_metrics.get('sharpe_ratio') or 0))}</td>
             <td>{_num(float(fold.oos_metrics.get('sharpe_ratio') or 0))}</td>
-            <td>{_pct(float(fold.oos_metrics.get('max_drawdown') or 0))}</td>
+            <td>{_pct(oos_dd)}</td>
+            <td>{_num(_calmar(fold.oos_metrics))}</td>
             <td>{int(fold.oos_metrics.get('total_trades') or 0)}</td>
             <td>{_num(float(fold.bh_metrics.get('sharpe_ratio') or 0))}</td>
+            <td>{_pct(bh_dd)}</td>
+            <td>{_num(_calmar(fold.bh_metrics))}</td>
             {ub_cell}
         </tr>"""
     ub_header = "<th>US book Sharpe</th>" if show_ub else ""
@@ -59,11 +128,12 @@ def render_study(study: StudyResult, output_path: str | Path | None = None) -> s
 <p class="{'pass' if study.passed else 'fail'}">Gate: {status}</p>
 {reasons}
 <p>OOS Sharpe {_num(study.oos_sharpe)} | OOS max DD {_pct(study.oos_drawdown)} |
-OOS trades {study.oos_trades:.0f} | Buy-and-hold Sharpe {_num(study.bh_sharpe)}</p>
+OOS trades {study.oos_trades:.0f} | Buy-and-hold Sharpe {_num(study.bh_sharpe)} |
+BH max DD {_pct(study.bh_drawdown)}</p>
 <p>Last-fold params: {study.best_params}</p>
-<p>KPI is OOS Sharpe vs buy-and-hold, not win rate.</p>
+<p>KPI is OOS Sharpe and drawdown vs buy-and-hold (Sharpe need not beat BH). Not win rate.</p>
 <table>
-<thead><tr><th>Fold</th><th>IS params</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS DD</th><th>OOS trades</th><th>BH Sharpe</th>{ub_header}</tr></thead>
+<thead><tr><th>Fold</th><th>OOS window</th><th>Regime</th><th>IS params</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS DD</th><th>OOS Calmar</th><th>OOS trades</th><th>BH Sharpe</th><th>BH DD</th><th>BH Calmar</th>{ub_header}</tr></thead>
 <tbody>{rows}</tbody>
 </table>
 </body>

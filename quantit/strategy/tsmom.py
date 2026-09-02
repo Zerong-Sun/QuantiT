@@ -61,7 +61,8 @@ def coerce_vol(value: object, default: float = 0.15) -> float:
 class TSMOMStrategy(Strategy):
     """Long when skipped lookback return is positive; size by realized vol.
 
-    Cash when momentum is non-positive. No shorting.
+    When momentum is non-positive, hold ``risk_off_scale`` of the vol-target
+    size (0 means cash). No shorting.
     """
 
     def __init__(
@@ -73,6 +74,7 @@ class TSMOMStrategy(Strategy):
         vol_floor: float = 0.05,
         max_position_pct: float = 0.95,
         rebalance_band: float = 0.10,
+        risk_off_scale: float = 0.3,
     ) -> None:
         if lookback <= 0:
             raise ValueError("lookback must be positive")
@@ -80,6 +82,8 @@ class TSMOMStrategy(Strategy):
             raise ValueError("skip must be >= 0")
         if skip >= lookback:
             raise ValueError("skip must be less than lookback")
+        if risk_off_scale < 0 or risk_off_scale > 1:
+            raise ValueError("risk_off_scale must be in [0, 1]")
         self.lookback = lookback
         self.skip = skip
         self.target_vol = target_vol
@@ -87,6 +91,7 @@ class TSMOMStrategy(Strategy):
         self.vol_floor = vol_floor
         self.max_position_pct = max_position_pct
         self.rebalance_band = rebalance_band
+        self.risk_off_scale = float(risk_off_scale)
         self._mom: pd.Series | None = None
         self._vol: pd.Series | None = None
 
@@ -109,10 +114,6 @@ class TSMOMStrategy(Strategy):
         if pd.isna(mom) or pd.isna(vol):
             return
         price = float(bar["close"]) if "close" in bar.index else context._signal_price(None)
-        if float(mom) <= 0:
-            if context.position > 0:
-                context.sell_all()
-            return
         equity = context.portfolio.equity(context.prices) if context.prices else context.portfolio.cash
         target = tsmom_size(
             equity=float(equity),
@@ -122,6 +123,8 @@ class TSMOMStrategy(Strategy):
             vol_floor=self.vol_floor,
             max_position_pct=self.max_position_pct,
         )
+        if float(mom) <= 0:
+            target = int(self.risk_off_scale * target)
         affordable = int(context.portfolio.cash / price) if price > 0 else 0
         held = context.position
         if held <= 0:

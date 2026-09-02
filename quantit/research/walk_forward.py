@@ -8,7 +8,7 @@ import math
 
 import pandas as pd
 
-from quantit.research.gates import GateResult, evaluate_gates
+from quantit.research.gates import GateResult, evaluate_gates, fold_regime
 from quantit.research.search import (
     _is_empty,
     buy_and_hold_metrics,
@@ -37,6 +37,9 @@ class FoldResult:
     oos_metrics: dict[str, float]
     bh_metrics: dict[str, float]
     us_book_metrics: dict[str, float] = field(default_factory=dict)
+    test_start: str = ""
+    test_end: str = ""
+    regime: str = ""
 
 
 @dataclass
@@ -48,6 +51,7 @@ class StudyResult:
     oos_drawdown: float = 0.0
     oos_trades: float = 0.0
     bh_sharpe: float = 0.0
+    bh_drawdown: float = 0.0
     best_params: dict[str, Any] = field(default_factory=dict)
     gate: GateResult | None = None
 
@@ -135,6 +139,7 @@ def walk_forward(
                 ub_metrics = ub["metrics"]
             except (ValueError, KeyError):
                 ub_metrics = {}
+        bh_sharpe = float(bh.get("sharpe_ratio") or 0.0)
         study.folds.append(
             FoldResult(
                 train=train_sl,
@@ -144,6 +149,9 @@ def walk_forward(
                 oos_metrics=oos["metrics"],
                 bh_metrics=bh,
                 us_book_metrics=ub_metrics,
+                test_start=str(pd.Timestamp(test_dates[0]).date()),
+                test_end=str(pd.Timestamp(test_dates[-1]).date()),
+                regime=fold_regime(bh_sharpe),
             )
         )
     if not study.folds:
@@ -153,12 +161,14 @@ def walk_forward(
     study.oos_drawdown = min(float(f.oos_metrics.get("max_drawdown") or 0.0) for f in study.folds)
     study.oos_trades = sum(float(f.oos_metrics.get("total_trades") or 0.0) for f in study.folds)
     study.bh_sharpe = _mean([float(f.bh_metrics.get("sharpe_ratio") or 0.0) for f in study.folds])
+    study.bh_drawdown = min(float(f.bh_metrics.get("max_drawdown") or 0.0) for f in study.folds)
     study.best_params = dict(study.folds[-1].params)
     study.gate = evaluate_gates(
         oos_sharpe=study.oos_sharpe,
         oos_drawdown=study.oos_drawdown,
         oos_trades=study.oos_trades,
         buy_hold_sharpe=study.bh_sharpe,
+        buy_hold_drawdown=study.bh_drawdown,
     )
     return study
 

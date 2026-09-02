@@ -210,11 +210,13 @@ def tsmom_signal(bars: pd.DataFrame) -> dict[str, Any]:
     skip = int(cfg.get("skip", defaults.skip))
     target_vol = float(cfg.get("target_vol", defaults.target_vol))
     vol_lookback = int(cfg.get("vol_lookback", defaults.vol_lookback))
+    risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
     values: dict[str, Any] = {
         "lookback": lookback,
         "skip": skip,
         "target_vol": target_vol,
         "vol_lookback": vol_lookback,
+        "risk_off_scale": risk_off_scale,
     }
     out = {
         "strategy_id": "tsmom",
@@ -246,7 +248,7 @@ def tsmom_signal(bars: pd.DataFrame) -> dict[str, Any]:
         out["action"] = "sell"
         out["reason"] = (
             f"Skipped {lookback}-bar return is {mom_val:.2%}; "
-            "time-series momentum is non-positive, so stay cash."
+            f"time-series momentum is non-positive, scale to {risk_off_scale:.0%} of vol target."
         )
     return out
 

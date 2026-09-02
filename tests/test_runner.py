@@ -335,6 +335,83 @@ class TestRunner:
         pos = broker.get_position("us", "AAPL")
         assert pos is not None and pos.quantity > 0
 
+    def test_tsmom_sell_reduces_to_overlay(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.params import write_active_params
+
+        write_active_params({"us_primary": "tsmom"})
+
+        def fake_eval(market, symbol, bars):
+            return {
+                "signals": [
+                    {
+                        "strategy_id": "tsmom",
+                        "action": "sell",
+                        "reason": "weak momentum overlay",
+                        "values": {
+                            "risk_off_scale": 0.3,
+                            "realized_vol": 0.15,
+                            "target_vol": 0.15,
+                        },
+                    }
+                ]
+            }
+
+        monkeypatch.setattr("quantit.paper.runner.evaluate_signals", fake_eval)
+        frames = {
+            "AAPL": _ohlcv(n=80, start_price=150.0, step=0.0),
+            "0700.HK": _ohlcv(start_price=300.0),
+            "600519.SS": _ohlcv(start_price=10.0, step=0.05),
+        }
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        broker.place_order("us", "AAPL", "buy", 200)
+        before = broker.get_position("us", "AAPL").quantity
+        runner = PaperRunner(broker, us_watch=("AAPL",), hk_warrants=(), hk_scores=None)
+        runner.tick()
+        after = broker.get_position("us", "AAPL")
+        assert after is not None
+        assert 0 < after.quantity < before
+
+    def test_tsmom_sell_flatten_when_scale_zero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.params import write_active_params
+
+        write_active_params({"us_primary": "tsmom"})
+
+        def fake_eval(market, symbol, bars):
+            return {
+                "signals": [
+                    {
+                        "strategy_id": "tsmom",
+                        "action": "sell",
+                        "reason": "weak momentum cash",
+                        "values": {
+                            "risk_off_scale": 0.0,
+                            "realized_vol": 0.15,
+                            "target_vol": 0.15,
+                        },
+                    }
+                ]
+            }
+
+        monkeypatch.setattr("quantit.paper.runner.evaluate_signals", fake_eval)
+        frames = {
+            "AAPL": _ohlcv(n=80, start_price=150.0, step=0.0),
+            "0700.HK": _ohlcv(start_price=300.0),
+            "600519.SS": _ohlcv(start_price=10.0, step=0.05),
+        }
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        broker.place_order("us", "AAPL", "buy", 50)
+        runner = PaperRunner(broker, us_watch=("AAPL",), hk_warrants=(), hk_scores=None)
+        runner.tick()
+        assert broker.get_position("us", "AAPL") is None
+
 
 class TestDerivativesPick:
     def test_choose_expiry_in_band(self) -> None:

@@ -47,13 +47,30 @@ def test_tsmom_stays_cash_in_downtrend() -> None:
     prices = [200.0 * (0.997 ** i) for i in range(400)]
     data = _ohlcv(prices)
     result = Backtester(initial_cash=100_000, commission_rate=0.0, slippage_rate=0.0).run(
-        TSMOMStrategy(lookback=126, skip=21, target_vol=0.15, vol_lookback=20),
+        TSMOMStrategy(lookback=126, skip=21, target_vol=0.15, vol_lookback=20, risk_off_scale=0.0),
         data,
         symbol="DROP",
     )
     longs = [t for t in result.trades if t.side.value == "buy"]
     assert result.portfolio.get_position("DROP").quantity == 0
     assert not longs or result.equity_curve.iloc[-1] <= result.equity_curve.iloc[0] * 1.02
+
+
+def test_tsmom_risk_off_scale_keeps_stub() -> None:
+    prices = [200.0 * (0.997 ** i) for i in range(400)]
+    data = _ohlcv(prices)
+    cash = Backtester(initial_cash=100_000, commission_rate=0.0, slippage_rate=0.0).run(
+        TSMOMStrategy(lookback=126, skip=21, target_vol=0.15, vol_lookback=20, risk_off_scale=0.0),
+        data,
+        symbol="DROP",
+    )
+    stub = Backtester(initial_cash=100_000, commission_rate=0.0, slippage_rate=0.0).run(
+        TSMOMStrategy(lookback=126, skip=21, target_vol=0.15, vol_lookback=20, risk_off_scale=0.3),
+        data,
+        symbol="DROP",
+    )
+    assert cash.portfolio.get_position("DROP").quantity == 0
+    assert stub.portfolio.get_position("DROP").quantity > 0
 
 
 def test_higher_vol_reduces_size() -> None:
@@ -74,3 +91,12 @@ def test_coerce_vol_falls_back() -> None:
     assert coerce_vol(None) == 0.15
     assert coerce_vol(0.0) == 0.15
     assert coerce_vol(0.22) == pytest.approx(0.22)
+
+
+def test_tsmom_research_grid_is_overlay_sized() -> None:
+    from quantit.research.specs import get_spec
+
+    grid = get_spec("tsmom").grid
+    assert len(grid) == 12
+    assert {row["lookback"] for row in grid} == {252}
+    assert {row["risk_off_scale"] for row in grid} == {0.0, 0.3, 0.5}
