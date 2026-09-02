@@ -165,6 +165,46 @@ def test_walk_forward_empty_dict_does_not_crash() -> None:
     study = walk_forward("theme_rotation", {}, symbol="HK", train=80, test=40, step=40, extra={"scores": pd.DataFrame()})
     assert study.folds == []
     assert not study.passed
+    cn = walk_forward(
+        "cn_etf_rotation",
+        {},
+        symbol="CN",
+        train=80,
+        test=40,
+        step=40,
+        extra={"scores": pd.DataFrame()},
+    )
+    assert cn.folds == []
+    assert not cn.passed
+
+
+def test_cn_etf_rotation_walk_forward_synthetic() -> None:
+    from quantit.research.specs import get_spec
+
+    spec = get_spec("cn_etf_rotation")
+    assert spec.kind == "multi"
+    assert spec.promote is False
+
+    n = 220
+    names = ("512480.SS", "515030.SS", "510300.SS")
+    ohlcv = {sym: _trend(n) for sym in names}
+    idx = next(iter(ohlcv.values())).index
+    scores = pd.DataFrame(
+        {"semis": 1.0, "ev": 0.4, "healthcare": 0.2, "defense": 0.1},
+        index=idx,
+    )
+    study = walk_forward(
+        "cn_etf_rotation",
+        ohlcv,
+        symbol="CN-ETF-ROTATION",
+        train=80,
+        test=40,
+        step=40,
+        grid=[{"cash_threshold": -0.5, "risk_off_invested": 0.4}],
+        extra={"scores": scores},
+    )
+    assert study.folds
+    assert math.isfinite(study.oos_sharpe)
 
 
 def test_buy_and_hold_equal_weight_multi() -> None:

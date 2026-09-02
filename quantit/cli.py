@@ -183,7 +183,7 @@ def main() -> None:
     )
 
     research = sub.add_parser("research", help="Walk-forward parameter study (OOS vs buy-and-hold)")
-    research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation")
+    research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation, cn_etf_rotation")
     research.add_argument("--symbols", default="", help="Comma-separated US symbols (default: paper watchlist)")
     research.add_argument("--start", default="2018-01-01")
     research.add_argument("--end", default="2024-12-31")

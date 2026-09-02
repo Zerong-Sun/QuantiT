@@ -25,6 +25,7 @@ def test_research_help(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.M
     out = capsys.readouterr().out
     assert "--strategy" in out
     assert "--promote" in out
+    assert "cn_etf_rotation" in out
 
 
 def test_brief_help(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:

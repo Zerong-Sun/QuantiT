@@ -79,6 +79,25 @@ def _load_hk(start: str, end: str) -> tuple[dict[str, pd.DataFrame], pd.DataFram
     return ohlcv, scores
 
 
+def _load_cn(start: str, end: str) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+    from quantit.data.cn_csv import CompositeCNProvider
+    from quantit.data.loader import DataLoader
+    from quantit.data.macro import MacroLoader
+    from quantit.features.cn_regime import compute_cn_etf_scores
+    from quantit.markets.cn import CN_ETF_FALLBACK, all_cn_etf_symbols
+    from quantit.policy.calendar import PolicyCalendar
+
+    symbols = list(dict.fromkeys([*all_cn_etf_symbols(), CN_ETF_FALLBACK]))
+    loader = DataLoader(provider=CompositeCNProvider())
+    ohlcv = loader.load_multi(symbols, start, end, skip_missing=True)
+    calendar = None
+    for df in ohlcv.values():
+        calendar = df.index if calendar is None else calendar.union(df.index)
+    macros = MacroLoader().load(start, end, calendar=calendar, skip_missing=True)
+    scores = compute_cn_etf_scores(ohlcv, macros, calendar=PolicyCalendar.load_cn())
+    return ohlcv, scores
+
+
 def run_research(
     strategy_id: str,
     symbols: list[str] | None = None,
@@ -94,11 +113,18 @@ def run_research(
     names = symbols or list(US_WATCHLIST)
     extra: dict[str, Any] | None = None
     if spec.kind == "multi":
-        ohlcv, scores = _load_hk(start, end)
+        if strategy_id == "cn_etf_rotation":
+            ohlcv, scores = _load_cn(start, end)
+            label = "CN-ETF-ROTATION"
+        else:
+            ohlcv, scores = _load_hk(start, end)
+            label = "HSTECH-ROTATION"
+        if not ohlcv:
+            raise SystemExit("No price data loaded")
         study = walk_forward(
             strategy_id,
             ohlcv,
-            symbol="HSTECH-ROTATION",
+            symbol=label,
             train=train,
             test=test,
             step=step,

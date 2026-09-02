@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import pandas as pd
 
+from quantit.markets.cn import CN_ETF_THEMES
 from quantit.strategy.base import Strategy
 from quantit.strategy.regime import ThemeRotationStrategy
 from quantit.strategy.technical import MACrossoverStrategy, RSIMeanReversionStrategy
@@ -84,6 +85,10 @@ def _make_theme(scores: pd.DataFrame, **params: Any) -> ThemeRotationStrategy:
     return ThemeRotationStrategy(scores=scores, **params)
 
 
+def _make_cn_etf(scores: pd.DataFrame, **params: Any) -> ThemeRotationStrategy:
+    return ThemeRotationStrategy(scores=scores, themes=CN_ETF_THEMES, **params)
+
+
 SPECS: dict[str, StrategySpec] = {
     "tsmom": StrategySpec("tsmom", TSMOMStrategy, _tsmom_grid(), promote=True),
     "us_book": StrategySpec("us_book", USBookStrategy, _us_book_grid(), promote=False),
@@ -94,6 +99,14 @@ SPECS: dict[str, StrategySpec] = {
     "theme_rotation": StrategySpec(
         "theme_rotation",
         _make_theme,
+        _theme_grid(),
+        promote=False,
+        kind="multi",
+        extra_keys=("scores",),
+    ),
+    "cn_etf_rotation": StrategySpec(
+        "cn_etf_rotation",
+        _make_cn_etf,
         _theme_grid(),
         promote=False,
         kind="multi",

@@ -133,7 +133,7 @@ def run_backtest(
     if spec.kind == "multi":
         scores = (extra or {}).get("scores")
         if scores is None:
-            raise ValueError("theme_rotation research requires extra['scores']")
+            raise ValueError(f"{strategy_id} research requires extra['scores']")
         strategy: Strategy = spec.builder(scores, **params)
     else:
         strategy = spec.builder(**params)
