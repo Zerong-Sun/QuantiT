@@ -99,6 +99,10 @@ class TestTradingRoutes:
     def test_accounts_seeded(self, client: TestClient) -> None:
         accounts = client.get("/api/v1/accounts").json()
         assert {a["market_id"] for a in accounts} == {"us", "hk", "cn"}
+        by_id = {a["market_id"]: a for a in accounts}
+        assert by_id["us"]["cash"] == pytest.approx(100_000)
+        assert by_id["hk"]["cash"] == pytest.approx(1_000_000)
+        assert by_id["cn"]["cash"] == pytest.approx(1_000_000)
 
     def test_place_order_and_blotter(self, client: TestClient) -> None:
         resp = client.post(

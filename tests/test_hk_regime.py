@@ -12,7 +12,7 @@ from quantit.engine.backtester import Backtester
 from quantit.features.regime import compute_theme_scores, scores_to_theme_weights
 from quantit.markets.hk import HK_PROFILE, HSTECH_THEMES, all_hstech_symbols, theme_of
 from quantit.policy.calendar import PolicyCalendar
-from quantit.strategy.regime import ThemeRotationStrategy, is_month_end
+from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights, is_month_end
 from quantit.strategy.technical import MACrossoverStrategy
 
 
@@ -41,10 +41,18 @@ class TestMarketProfile:
 
     def test_universe(self) -> None:
         symbols = all_hstech_symbols()
+        assert len(symbols) == 30
+        assert len(set(symbols)) == 30
         assert "0700.HK" in symbols
         assert "9988.HK" in symbols
+        assert "0100.HK" in symbols
+        assert "9660.HK" in symbols
+        assert "9863.HK" in symbols
         assert theme_of("0700.HK") == "platforms"
         assert theme_of("0981.HK") == "semis"
+        assert theme_of("9660.HK") == "semis"
+        assert theme_of("9863.HK") == "ev"
+        assert theme_of("0300.HK") == "hardware"
         assert set(HSTECH_THEMES) == {"platforms", "hardware", "semis", "ev"}
 
 
@@ -70,6 +78,13 @@ regimes:
         assert before["platforms"] == -2
         outside = cal.scores_at("2020-01-01")
         assert outside["platforms"] == 0
+
+    def test_does_not_project_past_asof(self) -> None:
+        cal = PolicyCalendar.load_default()
+        future = cal.scores_at("2026-12-15", asof="2026-09-02")
+        assert future == {"platforms": 0, "hardware": 0, "semis": 0, "ev": 0}
+        known = cal.scores_at("2024-01-15", asof="2026-09-02")
+        assert known["platforms"] >= 0
 
     def test_default_yaml_loads(self) -> None:
         cal = PolicyCalendar.load_default()
@@ -101,6 +116,26 @@ class TestRegimeWeights:
         )
         assert pytest.approx(weights["platforms"], abs=1e-9) == 0.5
         assert pytest.approx(sum(weights.values()), abs=1e-9) == 1.0
+
+    def test_lot_residual_goes_to_hstech_etf(self) -> None:
+        names = [
+            "0700.HK",
+            "9988.HK",
+            "3690.HK",
+            "9618.HK",
+            "1024.HK",
+            "9999.HK",
+            "9888.HK",
+        ]
+        weight = 0.40 / len(names)
+        target = {s: weight for s in names}
+        prices = {s: 400.0 for s in names}
+        prices["3033.HK"] = 5.0
+        lots = {s: 100 for s in names}
+        lots["3033.HK"] = 1
+        out = feasible_hk_weights(target, prices, equity=500_000.0, lot_sizes=lots)
+        assert all(name not in out for name in names)
+        assert out["3033.HK"] == pytest.approx(0.40)
 
 
 class TestMonthEnd:

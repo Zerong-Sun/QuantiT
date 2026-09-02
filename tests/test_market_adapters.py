@@ -50,12 +50,17 @@ class TestSymbolNormalize:
         assert adapter.normalize_symbol("700") == "0700.HK"
         assert adapter.normalize_symbol("0700.hk") == "0700.HK"
         assert adapter.normalize_symbol("9988.HK") == "9988.HK"
+        assert adapter.normalize_symbol("14993") == "14993.HK"
 
     def test_cn_maps_exchange_suffix(self) -> None:
         adapter = CNAdapter()
         assert adapter.normalize_symbol("600519") == "600519.SS"
         assert adapter.normalize_symbol("000001") == "000001.SZ"
         assert adapter.normalize_symbol("300750.sz") == "300750.SZ"
+        assert adapter.normalize_symbol("510300") == "510300.SS"
+        assert adapter.normalize_symbol("510300.sh") == "510300.SS"
+        assert adapter.normalize_symbol("159915") == "159915.SZ"
+        assert adapter.normalize_symbol("158003") == "158003.SZ"
 
 
 class TestProfiles:
@@ -140,6 +145,23 @@ class TestSearchAndInstrument:
         assert inst.lot_size == 1
         assert "09:30" in inst.session_hours
 
+    def test_cn_etf_instrument_and_universe(self) -> None:
+        from quantit.markets.cn import CN_ETF_FALLBACK, all_cn_etf_symbols, cn_theme_of
+
+        adapter = CNAdapter()
+        inst = adapter.instrument("510300")
+        assert inst.symbol == "510300.SS"
+        assert inst.asset_class == "etf"
+        assert inst.lot_size == 100
+        assert "11:30" in inst.session_hours
+        assert CN_ETF_FALLBACK in adapter.universe()
+        assert "512480.SS" in all_cn_etf_symbols()
+        assert cn_theme_of("512480.SS") == "semis"
+        assert cn_theme_of("515030.SS") == "ev"
+        assert cn_theme_of("158003.SZ") == "healthcare"
+        assert cn_theme_of("158009.SZ") == "defense"
+        assert cn_theme_of("600519.SS") is None
+
 
 class TestRegistry:
     def test_register_and_get(self) -> None:
@@ -154,3 +176,33 @@ class TestRegistry:
         assert set(registry.ids()) == {"us", "hk", "cn"}
         assert registry.get("hk").profile is HK_PROFILE
         assert registry.get("cn").profile is CN_PROFILE
+
+
+class TestHKStructuredBars:
+    def test_parse_eastmoney_klines(self) -> None:
+        from quantit.data.hk_structured import parse_eastmoney_klines
+
+        df = parse_eastmoney_klines(
+            [
+                "2026-08-25,0.130,0.128,0.131,0.127,1000,100.0,0.00",
+                "2026-08-26,0.128,0.135,0.143,0.125,2000,200.0,6.15",
+            ]
+        )
+        assert list(df.columns) == ["open", "high", "low", "close", "volume"]
+        assert len(df) == 2
+        assert df["close"].iloc[-1] == pytest.approx(0.135)
+        assert df["high"].iloc[-1] == pytest.approx(0.143)
+
+    def test_hk_market_provider_routes_warrants(self) -> None:
+        from quantit.data.hk_structured import HKMarketProvider
+
+        equity = FakeProvider({"0700.HK": _ohlcv(start_price=400.0)})
+        structured = FakeProvider({"13606.HK": _ohlcv(start_price=0.05)})
+        provider = HKMarketProvider(equity=equity, structured=structured)
+        w = provider.fetch("13606.HK", "2024-01-01", "2024-02-01")
+        e = provider.fetch("0700.HK", "2024-01-01", "2024-02-01")
+        assert structured.calls == [("13606.HK", "1d")]
+        assert equity.calls == [("0700.HK", "1d")]
+        assert w["close"].iloc[0] == pytest.approx(0.05)
+        assert e["close"].iloc[0] == pytest.approx(400.0)
+

@@ -17,7 +17,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(-
 .terminal {
   height: 100%;
   display: grid;
-  grid-template-rows: 56px 1fr minmax(240px, 32vh);
+  grid-template-rows: 56px auto 1fr minmax(240px, 32vh);
 }
 
 .topbar {
@@ -51,6 +51,27 @@ html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(-
   padding: 6px 8px;
 }
 .session { margin-left: auto; color: var(--muted); font-size: 12px; }
+.runner-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #0f1419;
+  font-size: 12px;
+  color: var(--muted);
+}
+.runner-bar .live { color: var(--up); font-weight: 700; letter-spacing: 0.08em; }
+.runner-bar .off { color: var(--down); font-weight: 700; letter-spacing: 0.08em; }
+.runner-bar button {
+  background: #1b2430;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
 
 .workspace { display: grid; grid-template-columns: 1fr 300px; min-height: 0; }
 .chart-col { display: flex; flex-direction: column; min-width: 0; }

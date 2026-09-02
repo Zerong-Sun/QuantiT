@@ -1,4 +1,5 @@
 from quantit.features.base import Feature
+from quantit.features.cn_regime import compute_cn_etf_scores
 from quantit.features.regime import compute_theme_scores, scores_to_theme_weights
 from quantit.features.fundamental import EarningsYieldFeature, PriceToBookFeature, PriceToEarningsFeature
 from quantit.features.registry import FeatureRegistry, default_registry
@@ -31,5 +32,6 @@ __all__ = [
     "PriceToBookFeature",
     "EarningsYieldFeature",
     "compute_theme_scores",
+    "compute_cn_etf_scores",
     "scores_to_theme_weights",
 ]

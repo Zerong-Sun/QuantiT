@@ -7,7 +7,9 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from quantit.markets.assets import allowed_list, asset_class, is_allowed, multiplier
 from quantit.markets.registry import MarketRegistry, get_registry
+from quantit.paper.capital import PAPER_CASH
 from quantit.paper.models import Account, Order, Position, PositionLot, Trade
 
 
@@ -27,19 +29,42 @@ class PaperBroker:
     def now(self) -> datetime:
         return self._now()
 
-    def ensure_accounts(self, cash: float = 100_000.0) -> None:
-        existing = {a.market_id for a in self.list_accounts()}
+    def ensure_accounts(self, cash: float | dict[str, float] | None = None) -> None:
+        if cash is None:
+            targets = dict(PAPER_CASH)
+        elif isinstance(cash, dict):
+            targets = dict(PAPER_CASH)
+            targets.update(cash)
+        else:
+            targets = {adapter.market_id: float(cash) for adapter in self.registry.all()}
+
+        existing = {a.market_id: a for a in self.list_accounts()}
         for adapter in self.registry.all():
-            if adapter.market_id in existing:
-                continue
-            self.session.add(
-                Account(
-                    market_id=adapter.market_id,
-                    currency=adapter.profile.currency,
-                    cash=cash,
-                    initial_cash=cash,
+            target = targets.get(adapter.market_id, PAPER_CASH.get(adapter.market_id, 100_000.0))
+            account = existing.get(adapter.market_id)
+            if account is None:
+                self.session.add(
+                    Account(
+                        market_id=adapter.market_id,
+                        currency=adapter.profile.currency,
+                        cash=target,
+                        initial_cash=target,
+                    )
                 )
+                continue
+            idle = account.cash == account.initial_cash and not any(
+                p.quantity > 0 for p in account.positions
             )
+            delta = target - account.initial_cash
+            if abs(delta) <= 1e-6:
+                continue
+            if idle:
+                account.cash = target
+                account.initial_cash = target
+            else:
+                # Resize the paper endowment without flattening open positions.
+                account.cash += delta
+                account.initial_cash = target
         self.session.commit()
 
     def list_accounts(self) -> list[Account]:
@@ -110,6 +135,14 @@ class PaperBroker:
         if side not in {"buy", "sell"}:
             return self._reject(order, f"unsupported side: {side}")
 
+        klass = asset_class(market_id, canonical)
+        if not is_allowed(market_id, canonical):
+            return self._reject(
+                order,
+                f"{klass} is not enabled for {market_id} paper (allowed: {', '.join(allowed_list(market_id))})",
+            )
+        mult = multiplier(market_id, canonical)
+
         qty_errors = adapter.validate_quantity(canonical, quantity)
         if qty_errors:
             return self._reject(order, "; ".join(qty_errors))
@@ -124,10 +157,16 @@ class PaperBroker:
 
         slip = quote.last * adapter.profile.slippage_rate
         fill_price = quote.last + slip if side == "buy" else quote.last - slip
-        commission = fill_price * quantity * adapter.profile.all_in_commission_rate
+        if market_id == "cn":
+            rate = adapter.profile.commission_rate
+            if klass == "equity" and side == "sell":
+                rate += adapter.profile.stamp_duty_rate
+        else:
+            rate = adapter.profile.all_in_commission_rate
+        commission = fill_price * quantity * mult * rate
 
         if side == "buy":
-            cost = fill_price * quantity + commission
+            cost = fill_price * quantity * mult + commission
             if cost > account.cash:
                 return self._reject(order, f"insufficient cash: need {cost:.2f}, have {account.cash:.2f}")
             account.cash -= cost
@@ -155,7 +194,7 @@ class PaperBroker:
                     order,
                     f"T+{adapter.t_plus} restriction: only {sellable} shares sellable today",
                 )
-            proceeds = fill_price * quantity - commission
+            proceeds = fill_price * quantity * mult - commission
             account.cash += proceeds
             self._consume_lots(pos, quantity, ts, adapter.t_plus)
             pos.quantity -= quantity

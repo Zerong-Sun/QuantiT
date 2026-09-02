@@ -12,9 +12,11 @@ import inspect
 from typing import Any, Callable
 
 from quantit.features.regime import DEMAND_WEIGHT, INTL_WEIGHT, POLICY_WEIGHT
+from quantit.markets.cn import CN_ETF_NAMES, CN_ETF_THEMES
 from quantit.markets.hk import HK_NAMES, HSTECH_THEMES
 from quantit.strategy.regime import ThemeRotationStrategy
 from quantit.strategy.technical import MACrossoverStrategy, RSIMeanReversionStrategy
+from quantit.strategy.tsmom import TSMOMStrategy
 
 PARAM_HELP: dict[str, str] = {
     "fast_period": "Fast SMA lookback (bars).",
@@ -27,6 +29,13 @@ PARAM_HELP: dict[str, str] = {
     "risk_off_invested": "Target invested weight in risk-off (rest is cash).",
     "equal_weight_band": "If theme-score range is tighter than this, equal-weight.",
     "turnover_band": "Skip a name if the qty change vs current is within this band.",
+    "lookback": "Return lookback in bars (252 ≈ 12 months).",
+    "skip": "Skip the most recent bars to avoid 1-month reversal.",
+    "target_vol": "Annualized volatility target for position size.",
+    "vol_lookback": "Bars used to estimate realized volatility.",
+    "vol_floor": "Minimum realized vol so size cannot explode.",
+    "max_position_pct": "Cap on equity deployed in the name.",
+    "rebalance_band": "Ignore size changes smaller than this fraction of the current position.",
 }
 
 
@@ -63,6 +72,13 @@ def _theme_universe() -> dict[str, list[dict[str, str]]]:
     return out
 
 
+def _cn_etf_universe() -> dict[str, list[dict[str, str]]]:
+    out: dict[str, list[dict[str, str]]] = {}
+    for theme, members in CN_ETF_THEMES.items():
+        out[theme] = [{"symbol": s, "name": CN_ETF_NAMES.get(s, s)} for s in members]
+    return out
+
+
 def _ma_entry() -> dict[str, Any]:
     return {
         "id": "ma_crossover",
@@ -77,9 +93,11 @@ def _ma_entry() -> dict[str, Any]:
             "US single names at daily bars."
         ),
         "rules": [
-            "If fast SMA crosses above slow SMA and the book is flat, buy with position_pct of cash.",
-            "If fast SMA crosses below slow SMA and a long is held, sell all.",
-            "Backtests fill on the next bar's open. Paper terminal is manual; this card is the live rule set.",
+            "If SMA(fast) is above SMA(slow) and the book is flat, buy with position_pct of cash (cross or already-in-trend).",
+            "If SMA(fast) crosses below SMA(slow) and a long is held, sell all.",
+            "When the trend is down, this card yields to RSI mean reversion so the two rules do not share a slot.",
+            "Paper fills at the delayed last print. Backtests still fill on the next bar's open unless configured otherwise.",
+            "Paper runner also buys a 21–90 DTE ATM call overlay (~5% of US seed) on a buy, and closes those calls on a sell.",
         ],
         "parameters": _params(MACrossoverStrategy),
         "universe": None,
@@ -96,13 +114,14 @@ def _rsi_entry() -> dict[str, Any]:
         "horizon": "Daily, single-name",
         "summary": inspect.getdoc(RSIMeanReversionStrategy) or "",
         "thesis": (
-            "Mean reversion. RSI below the buy threshold is treated as short-term "
-            "oversold; above the sell threshold as overbought. Used on US single names."
+            "Mean reversion, armed only when the 10/30 SMA trend is down. RSI below "
+            "the buy threshold is treated as short-term oversold; above the sell "
+            "threshold as overbought. Ignored in an uptrend so it cannot fight MA."
         ),
         "rules": [
-            "If RSI < buy_threshold and the book is flat, buy with position_pct of cash.",
-            "If RSI > sell_threshold and a long is held, sell all.",
-            "No shorting. Neutral RSI is a hold.",
+            "Only when SMA(fast) <= SMA(slow): if RSI < buy_threshold and the book is flat, buy.",
+            "Only when SMA(fast) <= SMA(slow): if RSI > sell_threshold and a long is held, sell all.",
+            "No shorting. Neutral RSI is a hold. Death-cross MA exits still win over an RSI buy.",
         ],
         "parameters": _params(RSIMeanReversionStrategy),
         "universe": None,
@@ -130,6 +149,8 @@ def _theme_entry() -> dict[str, Any]:
             "If the best theme score is below cash_threshold, invest only risk_off_invested and hold the rest in cash.",
             "Otherwise softmax theme scores into weights; equal-weight when the score range is inside equal_weight_band.",
             "Spread each theme's weight equally across members that have a quote that day.",
+            "If a name cannot fill one board lot at this book size, its weight goes to 3033.HK (Hang Seng TECH ETF) or stays cash.",
+            "Separately, the paper runner applies the same daily trend/RSI book to a 5-digit warrant/CBBC watchlist (~5% of HK seed per name).",
         ],
         "parameters": _params(ThemeRotationStrategy, skip=frozenset({"scores", "themes"})),
         "universe": _theme_universe(),
@@ -141,10 +162,75 @@ def _theme_entry() -> dict[str, Any]:
     }
 
 
+def _cn_etf_entry() -> dict[str, Any]:
+    return {
+        "id": "cn_etf_rotation",
+        "name": "CN Industry ETF Rotation",
+        "class_name": ThemeRotationStrategy.__name__,
+        "markets": ["cn"],
+        "horizon": "Monthly, multi-asset",
+        "summary": (
+            "Allocate onshore A-share industry ETFs from precomputed regime scores. "
+            "Rebalances on the last Shanghai/Shenzhen session of each month."
+        ),
+        "thesis": (
+            "Long-horizon onshore industry-ETF allocation. Capital rotates across "
+            "semiconductors, new energy / NEV, healthcare, and defense — not single-name "
+            "A-shares and not intraday. Composite score mixes ETF demand versus CSI 300, "
+            "an industrial-policy calendar, and international macros."
+        ),
+        "rules": [
+            "Rebalance on the last A-share session of each month.",
+            "Score = demand + policy + international (weights below), each clipped to [-2, 2].",
+            "Demand is theme relative volume plus cumulative return versus 510300.SS.",
+            "If the best theme score is below cash_threshold, invest only risk_off_invested and hold the rest in cash.",
+            "Otherwise softmax theme scores into weights; equal-weight when the score range is inside equal_weight_band.",
+            "Spread each theme's weight equally across members that have a quote that day.",
+            "If a name cannot fill one 100-share lot at this book size, its weight goes to 510300.SS (CSI 300 ETF) or stays cash.",
+            "Onshore ETFs are stamp-duty exempt; T+1 still applies.",
+        ],
+        "parameters": _params(ThemeRotationStrategy, skip=frozenset({"scores", "themes"})),
+        "universe": _cn_etf_universe(),
+        "score_weights": {
+            "demand": DEMAND_WEIGHT,
+            "policy": POLICY_WEIGHT,
+            "international": INTL_WEIGHT,
+        },
+    }
+
+
+def _tsmom_entry() -> dict[str, Any]:
+    return {
+        "id": "tsmom",
+        "name": "Time-Series Momentum",
+        "class_name": TSMOMStrategy.__name__,
+        "markets": ["us"],
+        "horizon": "Daily, single-name",
+        "summary": inspect.getdoc(TSMOMStrategy) or "",
+        "thesis": (
+            "Own-price trend. The sign of the skipped 12-month return decides whether "
+            "to hold the name; position size targets a constant annualized volatility. "
+            "Cash when momentum is non-positive. No shorting."
+        ),
+        "rules": [
+            "Momentum = close[t-skip] / close[t-lookback] - 1 (default skip 21, lookback 252).",
+            "If momentum > 0, size so notional vol ≈ target_vol, capped by max_position_pct.",
+            "If momentum ≤ 0, sell all and stay cash.",
+            "Resize when the target quantity moves by more than rebalance_band.",
+            "Paper runner uses this card only after a walk-forward promote with us_primary: tsmom.",
+        ],
+        "parameters": _params(TSMOMStrategy),
+        "universe": None,
+        "score_weights": None,
+    }
+
+
 _BUILDERS: dict[str, Callable[[], dict[str, Any]]] = {
     "ma_crossover": _ma_entry,
     "rsi_mean_reversion": _rsi_entry,
+    "tsmom": _tsmom_entry,
     "theme_rotation": _theme_entry,
+    "cn_etf_rotation": _cn_etf_entry,
 }
 
 

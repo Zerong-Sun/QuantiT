@@ -22,5 +22,7 @@ Thumbs.db
 *~
 examples/backtest_report.html
 examples/hk_tech_rotation_report.html
+examples/cn_etf_rotation_report.html
+materials/etf_history_clean.csv
 web/node_modules/
 web/dist/

@@ -17,6 +17,7 @@ import type {
   SignalBundle,
   Strategy,
   Trade,
+  Runner,
 } from "./types";
 
 const POLL_MS = 15_000;
@@ -46,6 +47,7 @@ export function App() {
   const [strategyId, setStrategyId] = useState("");
   const [signals, setSignals] = useState<SignalBundle | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
+  const [runner, setRunner] = useState<Runner | null>(null);
   const [desk, setDesk] = useState<DeskTab>("blotter");
   const [qty, setQty] = useState(100);
   const [message, setMessage] = useState("");
@@ -57,16 +59,18 @@ export function App() {
   const currentMarket = markets.find((m) => m.id === market);
 
   async function loadBlotter() {
-    const [acc, pos, ord, tr] = await Promise.all([
+    const [acc, pos, ord, tr, run] = await Promise.all([
       api.accounts(),
       api.positions(),
       api.orders(),
       api.trades(),
+      api.runner(),
     ]);
     setAccounts(acc);
     setPositions(pos);
     setOrders(ord);
     setTrades(tr);
+    setRunner(run);
   }
 
   async function loadDesk() {
@@ -176,7 +180,7 @@ export function App() {
   }
 
   const changeClass = (quote?.change ?? 0) >= 0 ? "up" : "down";
-  const estNotional = (quote?.last ?? 0) * qty;
+  const estNotional = (quote?.last ?? 0) * qty * (instrument?.multiplier ?? 1);
 
   return (
     <div className="terminal">
@@ -199,15 +203,36 @@ export function App() {
         </form>
         <div className="session">
           {currentMarket ? `${currentMarket.session_hours} · delayed` : "delayed quotes"}
+          {currentMarket?.allowed_asset_classes?.length ? ` · ${currentMarket.allowed_asset_classes.join("/")}` : ""}
         </div>
       </header>
+      {runner ? (
+        <div className="runner-bar">
+          <span className={runner.running ? "live" : "off"}>{runner.running ? "LIVE" : "PAUSED"}</span>
+          <span>US {fmt(runner.cash?.us ?? accounts.find((a) => a.market_id === "us")?.cash, 0)} USD · seed {fmt(runner.seed_cash?.us, 0)}</span>
+          <span>HK {fmt(runner.cash?.hk ?? accounts.find((a) => a.market_id === "hk")?.cash, 0)} HKD · seed {fmt(runner.seed_cash?.hk, 0)}</span>
+          <span>CN {fmt(runner.cash?.cn ?? accounts.find((a) => a.market_id === "cn")?.cash, 0)} CNY · seed {fmt(runner.seed_cash?.cn, 0)}</span>
+          <span>{(runner.allowed?.us ?? []).join("/")} · {(runner.allowed?.hk ?? []).join("/")}</span>
+          <span>{runner.last_tick ? `tick ${runner.last_tick.replace("T", " ").slice(0, 19)}` : "waiting for first tick"}</span>
+          {runner.actions[0] ? (
+            <span>{runner.actions[0].side} {runner.actions[0].quantity} {runner.actions[0].symbol} ({runner.actions[0].status})</span>
+          ) : null}
+          <button type="button" onClick={() => api.runnerTick().then(setRunner).then(() => loadBlotter())}>Run now</button>
+          {runner.running ? (
+            <button type="button" onClick={() => api.runnerStop().then(setRunner)}>Pause</button>
+          ) : (
+            <button type="button" onClick={() => api.runnerStart().then(setRunner)}>Start</button>
+          )}
+          {runner.last_error ? <span className="banner error">{runner.last_error.split("\n")[0]}</span> : null}
+        </div>
+      ) : null}
 
       <main className="workspace">
         <section className="chart-col">
           <div className="quote-bar">
             <div>
               <h1>{instrument?.symbol ?? symbol}</h1>
-              <p>{instrument?.name} · {instrument?.currency} · lot {instrument?.lot_size ?? "—"}</p>
+              <p>{instrument?.name} · {instrument?.asset_class ?? "equity"} · {instrument?.currency} · lot {instrument?.lot_size ?? "—"}{instrument?.multiplier && instrument.multiplier > 1 ? ` · ×${instrument.multiplier}` : ""}</p>
             </div>
             <div className={`last ${changeClass}`}>
               <strong>{fmt(quote?.last, ui.pricePrecision)}</strong>

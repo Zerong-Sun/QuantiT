@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from quantit.markets.adapter import MarketAdapter
+from quantit.markets.assets import HK_ETFS
 from quantit.markets.base import MarketProfile
 
 HK_PROFILE = MarketProfile(
@@ -15,7 +16,8 @@ HK_PROFILE = MarketProfile(
     lot_size_note="HKEX board lots are not enforced in v1 backtests.",
 )
 
-# Yahoo Finance symbols. Theme rotation stays inside tech/internet, not finance/property.
+# Hang Seng TECH Index (30 names, HSI factsheet 31 Jul 2026), mapped onto the
+# four rotation sleeves. Yahoo Finance symbols.
 HSTECH_THEMES: dict[str, list[str]] = {
     "platforms": [
         "0700.HK",  # Tencent
@@ -25,25 +27,42 @@ HSTECH_THEMES: dict[str, list[str]] = {
         "1024.HK",  # Kuaishou
         "9999.HK",  # NetEase
         "9888.HK",  # Baidu
+        "9626.HK",  # Bilibili
+        "9961.HK",  # Trip.com
+        "1698.HK",  # Tencent Music
+        "0780.HK",  # Tongcheng Travel
+        "6618.HK",  # JD Health
+        "0241.HK",  # Alibaba Health
+        "0020.HK",  # SenseTime
+        "0100.HK",  # MiniMax
+        "2513.HK",  # Z.AI
     ],
     "hardware": [
         "1810.HK",  # Xiaomi
         "0992.HK",  # Lenovo
         "2382.HK",  # Sunny Optical
+        "0300.HK",  # Midea
+        "6690.HK",  # Haier Smart Home
+        "0285.HK",  # BYD Electronic
     ],
     "semis": [
         "0981.HK",  # SMIC
         "1347.HK",  # Hua Hong
+        "9660.HK",  # Horizon Robotics
     ],
     "ev": [
         "1211.HK",  # BYD
         "2015.HK",  # Li Auto
         "9866.HK",  # NIO
         "9868.HK",  # XPeng
+        "9863.HK",  # Leapmotor
     ],
 }
 
 THEME_NAMES: tuple[str, ...] = tuple(HSTECH_THEMES.keys())
+
+# CSOP Hang Seng TECH ETF — residual vehicle when a sleeve cannot fill a board lot.
+HSTECH_ETF = "3033.HK"
 
 
 def all_hstech_symbols() -> list[str]:
@@ -74,15 +93,30 @@ HK_NAMES: dict[str, str] = {
     "1024.HK": "Kuaishou",
     "9999.HK": "NetEase",
     "9888.HK": "Baidu",
+    "9626.HK": "Bilibili",
+    "9961.HK": "Trip.com",
+    "1698.HK": "Tencent Music",
+    "0780.HK": "Tongcheng Travel",
+    "6618.HK": "JD Health",
+    "0241.HK": "Alibaba Health",
+    "0020.HK": "SenseTime",
+    "0100.HK": "MiniMax",
+    "2513.HK": "Z.AI",
     "1810.HK": "Xiaomi",
     "0992.HK": "Lenovo",
     "2382.HK": "Sunny Optical",
+    "0300.HK": "Midea",
+    "6690.HK": "Haier Smart Home",
+    "0285.HK": "BYD Electronic",
     "0981.HK": "SMIC",
     "1347.HK": "Hua Hong",
+    "9660.HK": "Horizon Robotics",
     "1211.HK": "BYD",
     "2015.HK": "Li Auto",
     "9866.HK": "NIO",
     "9868.HK": "XPeng",
+    "9863.HK": "Leapmotor",
+    **HK_ETFS,
 }
 
 # Known board lots. Missing entries skip lot enforcement (see lot_size_note).
@@ -99,6 +133,11 @@ class HKAdapter(MarketAdapter):
     timezone = "Asia/Hong_Kong"
     session_hours = "09:30-16:00 HKT"
     t_plus = 0
+
+    def default_provider(self):
+        from quantit.data.hk_structured import HKMarketProvider
+
+        return HKMarketProvider()
 
     def normalize_symbol(self, raw: str) -> str:
         s = raw.strip().upper()

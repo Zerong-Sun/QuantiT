@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 
 from quantit.features.regime import scores_to_theme_weights
-from quantit.markets.hk import HSTECH_THEMES
+from quantit.markets.hk import HSTECH_ETF, HSTECH_THEMES
 from quantit.strategy.base import Context, Strategy
 
 
@@ -20,6 +20,34 @@ def is_month_end(dates: pd.DatetimeIndex, when: pd.Timestamp) -> bool:
         return True
     nxt = pd.Timestamp(idx[loc + 1])
     return ts.month != nxt.month or ts.year != nxt.year
+
+
+def feasible_hk_weights(
+    target: dict[str, float],
+    prices: dict[str, float],
+    equity: float,
+    lot_sizes: dict[str, int] | None = None,
+    fallback: str = HSTECH_ETF,
+) -> dict[str, float]:
+    """Drop names that cannot buy one lot; send residual weight to ``fallback`` or cash."""
+    lots = lot_sizes or {}
+    kept: dict[str, float] = {}
+    residual = 0.0
+    for symbol, weight in target.items():
+        if weight <= 0:
+            continue
+        px = prices.get(symbol)
+        lot = lots.get(symbol, 1) or 1
+        if px is None or px <= 0 or equity * weight < lot * px:
+            residual += weight
+            continue
+        kept[symbol] = kept.get(symbol, 0.0) + weight
+    if residual > 0:
+        fb_px = prices.get(fallback)
+        fb_lot = lots.get(fallback, 1) or 1
+        if fallback and fb_px is not None and fb_px > 0 and equity * residual >= fb_lot * fb_px:
+            kept[fallback] = kept.get(fallback, 0.0) + residual
+    return kept
 
 
 class ThemeRotationStrategy(Strategy):

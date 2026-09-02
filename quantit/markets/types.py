@@ -35,3 +35,5 @@ class Instrument:
     lot_size: int
     timezone: str
     session_hours: str
+    asset_class: str = "equity"
+    multiplier: int = 1

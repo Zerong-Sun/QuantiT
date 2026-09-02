@@ -10,6 +10,7 @@ import type {
   SignalBundle,
   Strategy,
   Trade,
+  Runner,
 } from "./types";
 
 async function getJson<T>(path: string): Promise<T> {
@@ -84,5 +85,21 @@ export const api = {
       throw new Error(await res.text());
     }
     return res.json() as Promise<Order>;
+  },
+  runner: () => getJson<Runner>("/api/v1/runner"),
+  runnerStart: async () => {
+    const res = await fetch("/api/v1/runner/start", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<Runner>;
+  },
+  runnerStop: async () => {
+    const res = await fetch("/api/v1/runner/stop", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<Runner>;
+  },
+  runnerTick: async () => {
+    const res = await fetch("/api/v1/runner/tick", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<Runner>;
   },
 };

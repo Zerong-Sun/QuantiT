@@ -8,12 +8,16 @@ from quantit.strategy.technical import (
     ma_cross_side,
     rsi_reversion_side,
 )
+from quantit.strategy.tsmom import TSMOMStrategy
+from quantit.strategy.us_book import USBookStrategy
 
 __all__ = [
     "Strategy",
     "Context",
     "MACrossoverStrategy",
     "RSIMeanReversionStrategy",
+    "USBookStrategy",
+    "TSMOMStrategy",
     "ThemeRotationStrategy",
     "list_strategies",
     "get_strategy",

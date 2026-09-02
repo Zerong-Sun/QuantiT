@@ -18,7 +18,13 @@ from quantit.paper.broker import PaperBroker
 from quantit.paper.db import _ensure_columns, create_session
 from quantit.strategy.catalog import list_strategies
 from quantit.strategy.regime import ThemeRotationStrategy
-from quantit.strategy.signals import evaluate_signals, ma_signal, rsi_signal, theme_signal
+from quantit.strategy.signals import (
+    evaluate_signals,
+    ma_signal,
+    resolve_us_book_action,
+    rsi_signal,
+    theme_signal,
+)
 from quantit.strategy.technical import (
     MACrossoverStrategy,
     RSIMeanReversionStrategy,
@@ -58,7 +64,16 @@ def _registry() -> MarketRegistry:
     registry = MarketRegistry()
     registry.register(USAdapter(provider=FakeProvider({"AAPL": _ohlcv()})))
     registry.register(HKAdapter(provider=FakeProvider({"0700.HK": _ohlcv(start_price=300.0)})))
-    registry.register(CNAdapter(provider=FakeProvider({"600519.SS": _ohlcv(start_price=10.0, step=0.05)})))
+    registry.register(
+        CNAdapter(
+            provider=FakeProvider(
+                {
+                    "600519.SS": _ohlcv(start_price=10.0, step=0.05),
+                    "512480.SS": _ohlcv(start_price=1.0, step=0.01),
+                }
+            )
+        )
+    )
     return registry
 
 
@@ -76,7 +91,13 @@ def client() -> TestClient:
 class TestCatalog:
     def test_defaults_match_strategy_classes(self) -> None:
         by_id = {e["id"]: e for e in list_strategies()}
-        assert set(by_id) == {"ma_crossover", "rsi_mean_reversion", "theme_rotation"}
+        assert set(by_id) == {
+            "ma_crossover",
+            "rsi_mean_reversion",
+            "tsmom",
+            "theme_rotation",
+            "cn_etf_rotation",
+        }
         ma = {p["name"]: p["value"] for p in by_id["ma_crossover"]["parameters"]}
         rsi = {p["name"]: p["value"] for p in by_id["rsi_mean_reversion"]["parameters"]}
         theme = {p["name"]: p["value"] for p in by_id["theme_rotation"]["parameters"]}
@@ -90,12 +111,21 @@ class TestCatalog:
         assert set(by_id["theme_rotation"]["universe"]) == set(HSTECH_THEMES)
         assert by_id["ma_crossover"]["markets"] == ["us"]
         assert by_id["theme_rotation"]["markets"] == ["hk"]
+        assert by_id["cn_etf_rotation"]["markets"] == ["cn"]
 
     def test_api_lists_and_filters(self, client: TestClient) -> None:
         all_rows = client.get("/api/v1/strategies").json()
-        assert {r["id"] for r in all_rows} == {"ma_crossover", "rsi_mean_reversion", "theme_rotation"}
+        assert {r["id"] for r in all_rows} == {
+            "ma_crossover",
+            "rsi_mean_reversion",
+            "tsmom",
+            "theme_rotation",
+            "cn_etf_rotation",
+        }
         hk = client.get("/api/v1/strategies", params={"market": "hk"}).json()
         assert [r["id"] for r in hk] == ["theme_rotation"]
+        cn = client.get("/api/v1/strategies", params={"market": "cn"}).json()
+        assert [r["id"] for r in cn] == ["cn_etf_rotation"]
         one = client.get("/api/v1/strategies/ma_crossover").json()
         assert one["class_name"] == "MACrossoverStrategy"
         missing = client.get("/api/v1/strategies/does-not-exist")
@@ -210,7 +240,8 @@ class TestSignals:
     def test_api_bundle(self, client: TestClient) -> None:
         us = client.get("/api/v1/signals", params={"market": "us", "symbol": "AAPL"}).json()
         ids = {s["strategy_id"] for s in us["signals"]}
-        assert ids == {"ma_crossover", "rsi_mean_reversion"}
+        assert "ma_crossover" in ids and "rsi_mean_reversion" in ids
+        assert us["signals"][0]["strategy_id"] == "us_book"
         assert us["headline"]
         hk = client.get("/api/v1/signals", params={"market": "hk", "symbol": "0700.HK"}).json()
         hk_ids = {s["strategy_id"] for s in hk["signals"]}
@@ -218,8 +249,11 @@ class TestSignals:
         theme = next(s for s in hk["signals"] if s["strategy_id"] == "theme_rotation")
         assert theme["values"]["theme"] == "platforms"
         cn = client.get("/api/v1/signals", params={"market": "cn", "symbol": "600519.SS"}).json()
-        assert cn["signals"] == []
-        assert "No strategy" in cn["headline"]
+        assert {s["strategy_id"] for s in cn["signals"]} == {"cn_etf_rotation"}
+        assert cn["signals"][0]["action"] == "hold"
+        etf = client.get("/api/v1/signals", params={"market": "cn", "symbol": "512480.SS"}).json()
+        assert etf["signals"][0]["action"] == "watch"
+        assert etf["signals"][0]["values"]["theme"] == "semis"
 
     def test_signals_always_fetch_daily(self) -> None:
         from quantit.api.app import create_app
@@ -237,11 +271,20 @@ class TestSignals:
     def test_evaluate_includes_headline(self) -> None:
         bundle = evaluate_signals("us", "AAPL", _ohlcv())
         assert bundle["symbol"] == "AAPL"
-        assert len(bundle["signals"]) == 2
+        assert bundle["signals"][0]["strategy_id"] == "us_book"
+        assert {s["strategy_id"] for s in bundle["signals"]} >= {
+            "us_book",
+            "ma_crossover",
+            "rsi_mean_reversion",
+            "tsmom",
+        }
         hk = evaluate_signals("hk", "0700.HK", _ohlcv())
         assert [s["strategy_id"] for s in hk["signals"]] == ["theme_rotation"]
         cn = evaluate_signals("cn", "600519.SS", _ohlcv())
-        assert cn["signals"] == []
+        assert [s["strategy_id"] for s in cn["signals"]] == ["cn_etf_rotation"]
+        assert cn["signals"][0]["action"] == "hold"
+        etf = evaluate_signals("cn", "512480.SS", _ohlcv())
+        assert etf["signals"][0]["action"] == "watch"
 
     def test_shared_cross_helper(self) -> None:
         assert ma_cross_side(10, 11, 12, 11) == "buy"
@@ -250,6 +293,60 @@ class TestSignals:
         assert rsi_reversion_side(20, 30, 70) == "buy"
         assert rsi_reversion_side(80, 30, 70) == "sell"
         assert rsi_reversion_side(50, 30, 70) is None
+
+    def test_us_book_buys_existing_uptrend(self) -> None:
+        ma = {
+            "name": "MA Crossover",
+            "action": "hold",
+            "reason": "SMA(10) remains above SMA(30)",
+            "values": {"fast_ma": 12.0, "slow_ma": 10.0},
+        }
+        rsi = {
+            "name": "RSI Mean Reversion",
+            "action": "sell",
+            "reason": "overbought",
+            "values": {"rsi": 80.0},
+        }
+        book = resolve_us_book_action(ma, rsi)
+        assert book["action"] == "buy"
+        assert book["mode"] == "trend"
+        assert "overbought" not in book["reason"]
+
+    def test_us_book_rsi_only_in_downtrend(self) -> None:
+        ma = {
+            "name": "MA Crossover",
+            "action": "hold",
+            "reason": "SMA(10) remains below SMA(30)",
+            "values": {"fast_ma": 8.0, "slow_ma": 10.0},
+        }
+        rsi = {
+            "name": "RSI Mean Reversion",
+            "action": "buy",
+            "reason": "oversold",
+            "values": {"rsi": 20.0},
+        }
+        book = resolve_us_book_action(ma, rsi)
+        assert book["action"] == "buy"
+        assert book["mode"] == "reversion"
+        assert "oversold" in book["reason"]
+
+    def test_us_book_death_cross_exits_before_rsi(self) -> None:
+        ma = {
+            "name": "MA Crossover",
+            "action": "sell",
+            "reason": "crossed below",
+            "values": {"fast_ma": 9.0, "slow_ma": 10.0},
+        }
+        rsi = {
+            "name": "RSI Mean Reversion",
+            "action": "buy",
+            "reason": "oversold",
+            "values": {"rsi": 18.0},
+        }
+        book = resolve_us_book_action(ma, rsi)
+        assert book["action"] == "sell"
+        assert book["mode"] == "trend"
+        assert "crossed below" in book["reason"]
 
 
 class TestNotesAndRationale:

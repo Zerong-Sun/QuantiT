@@ -26,6 +26,12 @@ US_UNIVERSE: dict[str, str] = {
     "JPM": "JPMorgan",
     "SPY": "SPDR S&P 500",
     "QQQ": "Invesco QQQ",
+    "IWM": "iShares Russell 2000",
+    "DIA": "SPDR Dow Jones",
+    "XLK": "Technology Select Sector",
+    "GLD": "SPDR Gold Shares",
+    "TLT": "iShares 20+ Year Treasury",
+    "SOXX": "iShares Semiconductor",
 }
 
 

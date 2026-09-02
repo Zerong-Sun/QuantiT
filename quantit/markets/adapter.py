@@ -101,8 +101,11 @@ class MarketAdapter(ABC):
         )
 
     def instrument(self, symbol: str) -> Instrument:
+        from quantit.markets.assets import asset_class, multiplier
+
         canonical = self.normalize_symbol(symbol)
         lot = self.lot_size(canonical)
+        klass = asset_class(self.market_id, canonical)
         return Instrument(
             symbol=canonical,
             market_id=self.market_id,
@@ -111,6 +114,8 @@ class MarketAdapter(ABC):
             lot_size=lot if lot > 0 else 1,
             timezone=self.timezone,
             session_hours=self.session_hours,
+            asset_class=klass,
+            multiplier=multiplier(self.market_id, canonical),
         )
 
     def search(self, query: str) -> list[Instrument]:

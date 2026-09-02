@@ -8,6 +8,7 @@ export interface Market {
   session_hours: string;
   t_plus: number;
   intervals: string[];
+  allowed_asset_classes: string[];
 }
 
 export interface Instrument {
@@ -18,6 +19,8 @@ export interface Instrument {
   lot_size: number;
   timezone: string;
   session_hours: string;
+  asset_class: string;
+  multiplier: number;
 }
 
 export interface Quote {
@@ -134,4 +137,27 @@ export interface Note {
   market_id: string | null;
   symbol: string | null;
   created_at: string;
+}
+
+export interface RunnerAction {
+  time: string | null;
+  market_id: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  status: string;
+  rationale: string | null;
+  reject_reason: string | null;
+}
+
+export interface Runner {
+  running: boolean;
+  interval_sec: number;
+  last_tick: string | null;
+  last_error: string | null;
+  seed_cash: Record<string, number>;
+  cash: Record<string, number>;
+  allowed: Record<string, string[]>;
+  watchlists: Record<string, string[]>;
+  actions: RunnerAction[];
 }

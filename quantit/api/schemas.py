@@ -18,6 +18,7 @@ class MarketOut(BaseModel):
     session_hours: str
     t_plus: int
     intervals: List[str]
+    allowed_asset_classes: List[str] = Field(default_factory=list)
 
 
 class InstrumentOut(BaseModel):
@@ -28,6 +29,8 @@ class InstrumentOut(BaseModel):
     lot_size: int
     timezone: str
     session_hours: str
+    asset_class: str = "equity"
+    multiplier: int = 1
 
 
 class QuoteOut(BaseModel):
@@ -158,3 +161,26 @@ class NoteOut(BaseModel):
     market_id: Optional[str] = None
     symbol: Optional[str] = None
     created_at: datetime
+
+
+class RunnerActionOut(BaseModel):
+    time: Optional[str] = None
+    market_id: str
+    symbol: str
+    side: str
+    quantity: int
+    status: str
+    rationale: Optional[str] = None
+    reject_reason: Optional[str] = None
+
+
+class RunnerOut(BaseModel):
+    running: bool
+    interval_sec: int
+    last_tick: Optional[str] = None
+    last_error: Optional[str] = None
+    seed_cash: dict
+    cash: dict
+    allowed: dict
+    watchlists: dict
+    actions: List[RunnerActionOut]

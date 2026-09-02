@@ -1,6 +1,14 @@
 from quantit.markets.adapter import MarketAdapter, QuoteFeed
 from quantit.markets.base import MarketProfile
-from quantit.markets.cn import CN_PROFILE, CNAdapter
+from quantit.markets.cn import (
+    CN_ETF_FALLBACK,
+    CN_ETF_THEMES,
+    CN_PROFILE,
+    CNAdapter,
+    all_cn_etf_symbols,
+    canonical_cn_symbol,
+    cn_theme_of,
+)
 from quantit.markets.hk import (
     HK_PROFILE,
     HKAdapter,
@@ -30,6 +38,11 @@ __all__ = [
     "theme_of",
     "CN_PROFILE",
     "CNAdapter",
+    "CN_ETF_THEMES",
+    "CN_ETF_FALLBACK",
+    "all_cn_etf_symbols",
+    "cn_theme_of",
+    "canonical_cn_symbol",
     "get_registry",
     "reset_registry",
 ]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 import pandas as pd
@@ -20,14 +22,18 @@ from quantit.api.schemas import (
     OrderOut,
     PositionOut,
     QuoteOut,
+    RunnerOut,
     SignalBundleOut,
     StrategyOut,
     TradeOut,
 )
+from quantit.markets.assets import allowed_list
 from quantit.markets.registry import MarketRegistry, get_registry
 from quantit.paper.broker import PaperBroker
 from quantit.paper.db import create_session, session_on
 from quantit.paper.notes import NoteBook
+from quantit.paper.runner import PaperRunner, load_cn_theme_scores, load_hk_theme_scores
+from quantit.markets.derivatives import yahoo_atm_call
 from quantit.strategy.catalog import get_strategy, list_strategies
 from quantit.strategy.signals import evaluate_signals
 
@@ -60,14 +66,30 @@ def create_app(
     broker: PaperBroker | None = None,
     registry: MarketRegistry | None = None,
     notebook: NoteBook | None = None,
+    runner: PaperRunner | None = None,
 ) -> FastAPI:
+    owned = broker is None
     registry = registry or get_registry()
     if broker is None:
         broker = PaperBroker(create_session(), registry=registry)
     broker.ensure_accounts()
     notebook = notebook or NoteBook(session_on(broker.session.get_bind()), now=broker.now)
+    if runner is None:
+        runner = PaperRunner(broker)
+        if owned:
+            runner.hk_score_loader = load_hk_theme_scores
+            runner.cn_score_loader = load_cn_theme_scores
+            runner.us_option_picker = yahoo_atm_call
 
-    app = FastAPI(title="QuantiT Paper Terminal", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        autostart = owned and os.environ.get("QUANTIT_RUNNER", "1") != "0"
+        if autostart:
+            runner.start_background()
+        yield
+        runner.stop()
+
+    app = FastAPI(title="QuantiT Paper Terminal", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -77,6 +99,7 @@ def create_app(
     app.state.broker = broker
     app.state.registry = registry
     app.state.notebook = notebook
+    app.state.runner = runner
 
     def _adapter(market_id: str):
         try:
@@ -95,6 +118,7 @@ def create_app(
                 session_hours=adapter.session_hours,
                 t_plus=adapter.t_plus,
                 intervals=list(adapter.supported_intervals),
+                allowed_asset_classes=allowed_list(adapter.market_id),
             )
             for adapter in registry.all()
         ]
@@ -207,6 +231,29 @@ def create_app(
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True}
+
+    @app.get("/api/v1/runner", response_model=RunnerOut)
+    def runner_status() -> RunnerOut:
+        return RunnerOut(**runner.snapshot())
+
+    @app.post("/api/v1/runner/start", response_model=RunnerOut)
+    def runner_start() -> RunnerOut:
+        runner.start_background()
+        return RunnerOut(**runner.snapshot())
+
+    @app.post("/api/v1/runner/stop", response_model=RunnerOut)
+    def runner_stop() -> RunnerOut:
+        runner.stop()
+        return RunnerOut(**runner.snapshot())
+
+    @app.post("/api/v1/runner/tick", response_model=RunnerOut)
+    def runner_tick(
+        market: Optional[str] = None,
+        force: bool = False,
+    ) -> RunnerOut:
+        markets = (market,) if market else None
+        runner.tick(markets=markets, force=force)
+        return RunnerOut(**runner.snapshot())
 
     @app.get("/api/v1/accounts", response_model=List[AccountOut])
     def accounts() -> List[AccountOut]:

@@ -19,6 +19,49 @@ def _cmd_backtest(args: argparse.Namespace) -> None:
     print(format_metrics(metrics))
 
 
+def _cmd_research(args: argparse.Namespace) -> None:
+    from quantit.paper.capital import US_WATCHLIST
+    from quantit.research.run import run_research
+
+    symbols = [s.strip() for s in (args.symbols or ",".join(US_WATCHLIST)).split(",") if s.strip()]
+    run_research(
+        args.strategy,
+        symbols=symbols,
+        start=args.start,
+        end=args.end,
+        train=args.train,
+        test=args.test,
+        step=args.step,
+        promote=args.promote,
+        report_path=args.report or None,
+    )
+
+
+def _cmd_brief(args: argparse.Namespace) -> None:
+    from quantit.research.brief import (
+        BriefError,
+        build_brief_markdown,
+        call_llm,
+        parse_llm_proposal,
+        write_brief,
+        write_proposal,
+    )
+
+    markdown, _articles = build_brief_markdown(lookback_days=args.lookback)
+    path = write_brief(markdown)
+    print(f"Brief written to {path}")
+    print("Open it in Cursor and ask for a policy-calendar patch. Not a trade signal.")
+    if not args.llm:
+        return
+    try:
+        raw = call_llm(markdown)
+        payload = parse_llm_proposal(raw)
+    except BriefError as exc:
+        raise SystemExit(str(exc)) from exc
+    dest = write_proposal(payload)
+    print(f"LLM proposal written to {dest} (not merged, runner does not read this file).")
+
+
 def _format_article(article) -> str:
     ts = article.datetime.strftime("%Y-%m-%d %H:%M")
     headline = article.headline or "(no headline)"
@@ -139,6 +182,21 @@ def main() -> None:
         help="Do not open a browser",
     )
 
+    research = sub.add_parser("research", help="Walk-forward parameter study (OOS vs buy-and-hold)")
+    research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation")
+    research.add_argument("--symbols", default="", help="Comma-separated US symbols (default: paper watchlist)")
+    research.add_argument("--start", default="2018-01-01")
+    research.add_argument("--end", default="2024-12-31")
+    research.add_argument("--train", type=int, default=504)
+    research.add_argument("--test", type=int, default=126)
+    research.add_argument("--step", type=int, default=126)
+    research.add_argument("--promote", action="store_true", help="Write active_params.yaml if tsmom passes the gate")
+    research.add_argument("--report", default="", help="HTML report path")
+
+    brief = sub.add_parser("brief", help="Policy/international brief from Finnhub (no sentiment trading)")
+    brief.add_argument("--lookback", type=int, default=7)
+    brief.add_argument("--llm", action="store_true", help="Optional LLM JSON proposal (not auto-merged)")
+
     args = parser.parse_args()
 
     if args.command == "backtest":
@@ -147,6 +205,10 @@ def main() -> None:
         _cmd_news(args)
     elif args.command == "serve":
         _cmd_serve(args)
+    elif args.command == "research":
+        _cmd_research(args)
+    elif args.command == "brief":
+        _cmd_brief(args)
     else:
         parser.print_help()
 

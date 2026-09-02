@@ -1,0 +1,108 @@
+themes:
+  - semis
+  - ev
+  - healthcare
+  - defense
+
+# Integer scores in [-2, 2] per theme. Overlapping regimes are summed then clipped.
+# Structured industrial-policy regimes for onshore industry ETFs, not news headlines.
+regimes:
+  - name: covid_shock
+    start: 2020-01-01
+    end: 2020-03-31
+    scores:
+      semis: -1
+      ev: -1
+      healthcare: 0
+      defense: -1
+    notes: "Global risk-off. Healthcare demand offset some of the drawdown."
+
+  - name: recovery_and_nev_support
+    start: 2020-04-01
+    end: 2021-06-30
+    scores:
+      semis: 0
+      ev: 1
+      healthcare: 1
+      defense: 0
+    notes: "Liquidity recovery; NEV industrial policy still supportive; pandemic healthcare demand."
+
+  - name: volume_procurement
+    start: 2021-01-01
+    end: 2022-12-31
+    scores:
+      semis: 0
+      ev: 0
+      healthcare: -2
+      defense: 0
+    notes: "National volume-based procurement compressed drug and device pricing."
+
+  - name: nev_boom
+    start: 2021-07-01
+    end: 2022-12-31
+    scores:
+      semis: 0
+      ev: 2
+      healthcare: 0
+      defense: 0
+    notes: "Domestic NEV penetration accelerated; subsidy sunset already priced as volume growth."
+
+  - name: semis_localization
+    start: 2020-10-01
+    end: 2026-12-31
+    scores:
+      semis: 1
+      ev: 0
+      healthcare: 0
+      defense: 0
+    notes: "Domestic substitution in foundry, equipment, and materials."
+
+  - name: us_export_controls
+    start: 2022-10-07
+    end: 2026-12-31
+    scores:
+      semis: -1
+      ev: 0
+      healthcare: 0
+      defense: 0
+    notes: "US semiconductor equipment and advanced-node controls. Offsets localization for listed ETF baskets."
+
+  - name: defense_14th_five
+    start: 2021-03-01
+    end: 2026-12-31
+    scores:
+      semis: 0
+      ev: 0
+      healthcare: 0
+      defense: 1
+    notes: "14th Five-Year Plan defense and aerospace procurement visibility."
+
+  - name: ev_price_war
+    start: 2023-01-01
+    end: 2024-08-31
+    scores:
+      semis: 0
+      ev: -1
+      healthcare: 0
+      defense: 0
+    notes: "Domestic NEV price competition and utilization pressure on the chain."
+
+  - name: ev_overseas_tariffs
+    start: 2024-04-01
+    end: 2026-12-31
+    scores:
+      semis: 0
+      ev: -1
+      healthcare: 0
+      defense: 0
+    notes: "EU anti-subsidy process and related overseas tariff risk for China EVs."
+
+  - name: policy_bottom_2024
+    start: 2024-09-24
+    end: 2026-12-31
+    scores:
+      semis: 1
+      ev: 1
+      healthcare: 1
+      defense: 1
+    notes: "September 2024 package (swap facility, stagnant-housing, risk appetite). Broad beta lift, not a single industry call."

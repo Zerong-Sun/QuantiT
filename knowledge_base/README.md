@@ -43,12 +43,19 @@ knowledge_base/
 ├── 09_behavioral_finance/   # 行为金融
 │   ├── biases.md            # 认知偏差
 │   └── anomalies.md         # 市场异象
-└── 10_hong_kong/            # 港股长线（恒生科技主题轮动）
-    ├── market_structure.md  # HKEX、联系汇率、港股通、印花税
-    ├── supply_demand.md     # 成交额、汇率流动性、南向资金代理
-    ├── policy_regimes.md    # 政策体制日历（非新闻情绪）
-    ├── international.md     # 美元、美债、纳指、人民币传导
-    └── hstech_rotation.md   # 月频主题权重
+├── 10_hong_kong/            # 港股长线（恒生科技主题轮动）
+│   ├── market_structure.md  # HKEX、联系汇率、港股通、印花税
+│   ├── supply_demand.md     # 成交额、汇率流动性、南向资金代理
+│   ├── policy_regimes.md    # 政策体制日历（非新闻情绪）
+│   ├── international.md     # 美元、美债、纳指、人民币传导
+│   └── hstech_rotation.md   # 月频主题权重
+├── 11_paper/                # 模拟盘（当前账户上的规则，不是一般理论）
+│   └── strategy_review.md   # 合理性 / 可行性 / 路径预测
+└── 12_a_share/              # A 股行业 ETF 月频轮动
+    ├── market_structure.md  # 沪深、T+1、一手、印花税、股通
+    ├── etf_market.md        # 场内二级 vs 申赎、宽基 vs 行业
+    ├── policy_regimes.md    # 产业体制日历（非新闻情绪）
+    └── etf_rotation.md      # 月频主题权重、510300 残差
 ```
 
 ## 使用方式

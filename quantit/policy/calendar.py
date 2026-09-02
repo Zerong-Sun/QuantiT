@@ -87,11 +87,27 @@ class PolicyCalendar:
         with as_file(ref) as path:
             return cls.from_path(path)
 
-    def scores_at(self, when: str | date | datetime) -> dict[str, int]:
-        """Sum overlapping regime scores and clip to ``self.clip``."""
+    @classmethod
+    def load_cn(cls) -> PolicyCalendar:
+        from importlib.resources import as_file, files
+
+        ref = files("quantit.policy.data").joinpath("cn_etf_regimes.yaml")
+        with as_file(ref) as path:
+            return cls.from_path(path)
+
+    def scores_at(self, when: str | date | datetime, asof: str | date | datetime | None = None) -> dict[str, int]:
+        """Sum overlapping regime scores and clip to ``self.clip``.
+
+        Dates strictly after ``asof`` (default: today) get zeros so the calendar
+        does not project an open regime into the future.
+        """
         day = _as_date(when)
+        cap = _as_date(asof) if asof is not None else date.today()
         lo, hi = self.clip
-        totals = {theme: 0 for theme in self.themes}
+        zeros = {theme: 0 for theme in self.themes}
+        if day > cap:
+            return zeros
+        totals = dict(zeros)
         for regime in self.regimes:
             if not regime.covers(day):
                 continue
@@ -100,10 +116,10 @@ class PolicyCalendar:
                     totals[theme] += score
         return {theme: max(lo, min(hi, val)) for theme, val in totals.items()}
 
-    def series(self, dates) -> "pd.DataFrame":
+    def series(self, dates, asof: str | date | datetime | None = None) -> "pd.DataFrame":
         """Build a DataFrame of clipped policy scores indexed by ``dates``."""
         import pandas as pd
 
         idx = pd.DatetimeIndex(dates)
-        rows = [self.scores_at(ts.to_pydatetime()) for ts in idx]
+        rows = [self.scores_at(ts.to_pydatetime(), asof=asof) for ts in idx]
         return pd.DataFrame(rows, index=idx)
