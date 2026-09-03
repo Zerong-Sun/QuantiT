@@ -1,4 +1,4 @@
-"""Write promoted params; tsmom only by default."""
+"""Write promoted params for tsmom (US), hk_quality_book (HK), and cn_quality_book (CN)."""
 
 from __future__ import annotations
 
@@ -26,11 +26,14 @@ def maybe_promote(
     strategies[strategy_id] = dict(params)
     payload = {
         **existing,
-        "us_primary": strategy_id if strategy_id == "tsmom" else existing.get("us_primary", "us_book"),
         "strategies": strategies,
         "promoted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "gate_reasons": list(gate.reasons),
     }
     if strategy_id == "tsmom":
         payload["us_primary"] = "tsmom"
+    elif strategy_id == "hk_quality_book":
+        payload["hk_primary"] = "hk_quality_book"
+    elif strategy_id == "cn_quality_book":
+        payload["cn_primary"] = "cn_quality_book"
     return write_active_params(payload, path)

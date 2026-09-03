@@ -293,22 +293,28 @@ regimes:
 class TestCatalogAndSignals:
     def test_catalog_lists_cn(self) -> None:
         entries = list_strategies("cn")
-        assert [e["id"] for e in entries] == ["cn_etf_rotation"]
+        assert [e["id"] for e in entries] == ["cn_quality_book", "cn_etf_rotation"]
         entry = get_strategy("cn_etf_rotation")
         assert entry is not None
         assert "cn" in entry["markets"]
         assert "semis" in (entry.get("universe") or {})
+        quality = get_strategy("cn_quality_book")
+        assert quality is not None
+        assert "cn" in quality["markets"]
+        assert "quality" in (quality.get("universe") or {})
 
     def test_evaluate_member_and_outsider(self) -> None:
         inside = evaluate_signals("cn", "512480.SS", _ohlcv())
-        assert inside["signals"][0]["strategy_id"] == "cn_etf_rotation"
-        assert inside["signals"][0]["action"] == "watch"
+        assert {s["strategy_id"] for s in inside["signals"]} == {"cn_quality_book", "cn_etf_rotation"}
+        etf = next(s for s in inside["signals"] if s["strategy_id"] == "cn_etf_rotation")
+        assert etf["action"] == "watch"
         outside = evaluate_signals("cn", "600519.SS", _ohlcv())
-        assert outside["signals"][0]["action"] == "hold"
+        quality = next(s for s in outside["signals"] if s["strategy_id"] == "cn_quality_book")
+        assert quality["action"] == "watch"
 
     def test_signal_accepts_unnormalized_ticker(self) -> None:
         inside = evaluate_signals("cn", "512480.sh", _ohlcv())
-        sig = inside["signals"][0]
+        sig = next(s for s in inside["signals"] if s["strategy_id"] == "cn_etf_rotation")
         assert sig["action"] == "watch"
         assert sig["values"]["theme"] == "semis"
         assert "Semiconductor" in sig["values"]["name"]

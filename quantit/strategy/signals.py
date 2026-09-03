@@ -8,9 +8,10 @@ from typing import Any
 import pandas as pd
 
 from quantit.features.technical import RSIFeature, SMAFeature, VolatilityFeature
-from quantit.markets.cn import CN_ETF_NAMES, canonical_cn_symbol, cn_theme_of
+from quantit.markets.cn import CN_ETF_NAMES, CN_STOCK_UNIVERSE, canonical_cn_symbol, cn_theme_of
 from quantit.markets.hk import HK_NAMES, theme_of
 from quantit.research.params import strategy_params, us_primary
+from quantit.research.universes import CN_QUALITY, HK_QUALITY
 from quantit.strategy.catalog import get_strategy, list_strategies
 from quantit.strategy.technical import (
     MACrossoverStrategy,
@@ -253,6 +254,33 @@ def tsmom_signal(bars: pd.DataFrame) -> dict[str, Any]:
     return out
 
 
+def hk_quality_signal(symbol: str) -> dict[str, Any]:
+    entry = get_strategy("hk_quality_book") or {}
+    canonical = symbol.strip().upper()
+    if not canonical.endswith(".HK"):
+        canonical = f"{canonical}.HK"
+    values: dict[str, Any] = {"name": HK_NAMES.get(canonical, symbol), "universe": list(HK_QUALITY)}
+    out = {
+        "strategy_id": "hk_quality_book",
+        "name": entry.get("name", "HK Quality Basket TSMOM"),
+        "action": "watch",
+        "reason": "",
+        "values": values,
+    }
+    if canonical not in HK_QUALITY:
+        out["action"] = "hold"
+        out["reason"] = (
+            f"{symbol} is outside the HK quality book "
+            "(operating blue chips, not Hang Seng TECH). No monthly sleeve weight."
+        )
+        return out
+    out["reason"] = (
+        f"{symbol} ({HK_NAMES.get(canonical, symbol)}) sits in the equal-weight quality basket. "
+        "Membership only — rebalance is monthly on the last HK session, not a daily buy/sell."
+    )
+    return out
+
+
 def theme_signal(symbol: str) -> dict[str, Any]:
     entry = get_strategy("theme_rotation") or {}
     theme = theme_of(symbol)
@@ -278,6 +306,34 @@ def theme_signal(symbol: str) -> dict[str, Any]:
     out["reason"] = (
         f"{symbol} ({HK_NAMES.get(symbol, symbol)}) sits in the {theme} sleeve. "
         "Membership only — rebalance is monthly on the last HK session, not a daily buy/sell."
+    )
+    return out
+
+
+def cn_quality_signal(symbol: str) -> dict[str, Any]:
+    entry = get_strategy("cn_quality_book") or {}
+    canonical = canonical_cn_symbol(symbol)
+    values: dict[str, Any] = {
+        "name": CN_STOCK_UNIVERSE.get(canonical, symbol),
+        "universe": list(CN_QUALITY),
+    }
+    out = {
+        "strategy_id": "cn_quality_book",
+        "name": entry.get("name", "CN Quality Basket TSMOM"),
+        "action": "watch",
+        "reason": "",
+        "values": values,
+    }
+    if canonical not in CN_QUALITY:
+        out["action"] = "hold"
+        out["reason"] = (
+            f"{symbol} is outside the CN quality book "
+            "(operating blue chips, not industry ETFs). No monthly sleeve weight."
+        )
+        return out
+    out["reason"] = (
+        f"{symbol} ({CN_STOCK_UNIVERSE.get(canonical, symbol)}) sits in the equal-weight quality basket. "
+        "Membership only — rebalance is monthly on the last A-share session, not a daily buy/sell."
     )
     return out
 
@@ -317,6 +373,8 @@ _SIGNAL_FNS = {
     "ma_crossover": lambda bars, symbol: ma_signal(bars),
     "rsi_mean_reversion": lambda bars, symbol: rsi_signal(bars),
     "tsmom": lambda bars, symbol: tsmom_signal(bars),
+    "hk_quality_book": lambda bars, symbol: hk_quality_signal(symbol),
+    "cn_quality_book": lambda bars, symbol: cn_quality_signal(symbol),
     "theme_rotation": lambda bars, symbol: theme_signal(symbol),
     "cn_etf_rotation": lambda bars, symbol: cn_etf_signal(symbol),
 }

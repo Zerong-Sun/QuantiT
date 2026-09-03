@@ -9,8 +9,10 @@ import pandas as pd
 
 from quantit.markets.cn import CN_ETF_THEMES
 from quantit.strategy.base import Strategy
+from quantit.strategy.cn_book import CNQualityBookStrategy
 from quantit.strategy.regime import ThemeRotationStrategy
 from quantit.strategy.technical import MACrossoverStrategy, RSIMeanReversionStrategy
+from quantit.strategy.hk_book import HKQualityBookStrategy
 from quantit.strategy.tsmom import TSMOMStrategy
 from quantit.strategy.us_book import USBookStrategy
 
@@ -62,6 +64,24 @@ def _us_book_grid() -> list[dict[str, Any]]:
     return rows
 
 
+def _hk_quality_grid() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    lookback = 252
+    for skip in (0, 21):
+        for risk_off_scale in (0.0, 0.3, 0.5):
+            rows.append({"lookback": lookback, "skip": skip, "risk_off_scale": risk_off_scale})
+    return rows
+
+
+def _cn_quality_grid() -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    lookback = 252
+    for skip in (0, 21):
+        for risk_off_scale in (0.0, 0.3, 0.5):
+            rows.append({"lookback": lookback, "skip": skip, "risk_off_scale": risk_off_scale})
+    return rows
+
+
 def _theme_grid() -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for cash_threshold in (-1.0, -0.5, 0.0):
@@ -101,6 +121,20 @@ SPECS: dict[str, StrategySpec] = {
     "ma_crossover": StrategySpec("ma_crossover", MACrossoverStrategy, _ma_grid(), promote=False),
     "rsi_mean_reversion": StrategySpec(
         "rsi_mean_reversion", RSIMeanReversionStrategy, _rsi_grid(), promote=False
+    ),
+    "hk_quality_book": StrategySpec(
+        "hk_quality_book",
+        HKQualityBookStrategy,
+        _hk_quality_grid(),
+        promote=True,
+        kind="multi",
+    ),
+    "cn_quality_book": StrategySpec(
+        "cn_quality_book",
+        CNQualityBookStrategy,
+        _cn_quality_grid(),
+        promote=True,
+        kind="multi",
     ),
     "theme_rotation": StrategySpec(
         "theme_rotation",

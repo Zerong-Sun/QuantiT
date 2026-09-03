@@ -412,6 +412,68 @@ class TestRunner:
         runner.tick()
         assert broker.get_position("us", "AAPL") is None
 
+    def test_hk_quality_book_buys_quality_not_tencent(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import HK_QUALITY
+
+        write_active_params(
+            {
+                "hk_primary": "hk_quality_book",
+                "strategies": {
+                    "hk_quality_book": {"lookback": 40, "skip": 5, "risk_off_scale": 0.5, "invested_on": 0.95}
+                },
+            }
+        )
+        n = 80
+        frames = {
+            "AAPL": _ohlcv(n=n, start_price=150.0),
+            "0700.HK": _ohlcv(n=n, start_price=300.0),
+            "600519.SS": _ohlcv(n=n, start_price=10.0, step=0.05),
+        }
+        for sym in HK_QUALITY:
+            frames[sym] = _ohlcv(n=n, start_price=50.0, step=0.4)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=(), hk_warrants=(), hk_scores=None)
+        filled = runner.tick(markets=("hk",), force=True)
+        bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
+        assert bought & set(HK_QUALITY)
+        assert "0700.HK" not in bought
+
+    def test_cn_quality_book_buys_quality_not_csi300(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import CN_QUALITY
+
+        write_active_params(
+            {
+                "cn_primary": "cn_quality_book",
+                "strategies": {
+                    "cn_quality_book": {"lookback": 40, "skip": 5, "risk_off_scale": 0.5, "invested_on": 0.95}
+                },
+            }
+        )
+        n = 80
+        frames = {
+            "AAPL": _ohlcv(n=n, start_price=150.0),
+            "0700.HK": _ohlcv(n=n, start_price=300.0),
+            "510300.SS": _ohlcv(n=n, start_price=4.0, step=0.01),
+        }
+        for sym in CN_QUALITY:
+            frames[sym] = _ohlcv(n=n, start_price=10.0, step=0.05)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=(), hk_warrants=(), hk_scores=None)
+        filled = runner.tick(markets=("cn",), force=True)
+        bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
+        assert bought & set(CN_QUALITY)
+        assert "510300.SS" not in bought
+
 
 class TestDerivativesPick:
     def test_choose_expiry_in_band(self) -> None:

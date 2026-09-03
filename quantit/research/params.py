@@ -64,6 +64,18 @@ def us_primary(path: str | Path | None = None) -> str:
     return str(value)
 
 
+def hk_primary(path: str | Path | None = None) -> str:
+    data = load_active_params(path)
+    value = data.get("hk_primary") or "theme_rotation"
+    return str(value)
+
+
+def cn_primary(path: str | Path | None = None) -> str:
+    data = load_active_params(path)
+    value = data.get("cn_primary") or "cn_etf_rotation"
+    return str(value)
+
+
 def write_active_params(payload: dict[str, Any], path: str | Path | None = None) -> Path:
     target = Path(path) if path is not None else active_params_path()
     target.parent.mkdir(parents=True, exist_ok=True)

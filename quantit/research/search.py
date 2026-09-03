@@ -131,10 +131,13 @@ def run_backtest(
 ) -> dict[str, Any]:
     spec = get_spec(strategy_id)
     if spec.kind == "multi":
-        scores = (extra or {}).get("scores")
-        if scores is None:
-            raise ValueError(f"{strategy_id} research requires extra['scores']")
-        strategy: Strategy = spec.builder(scores, **params)
+        if "scores" in spec.extra_keys:
+            scores = (extra or {}).get("scores")
+            if scores is None:
+                raise ValueError(f"{strategy_id} research requires extra['scores']")
+            strategy: Strategy = spec.builder(scores, **params)
+        else:
+            strategy = spec.builder(**params)
     else:
         strategy = spec.builder(**params)
     if active_from is not None:

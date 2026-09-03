@@ -24,7 +24,10 @@ from quantit.paper.capital import (
     US_SLOT_PCT,
     US_WATCHLIST,
 )
-from quantit.research.params import strategy_params, us_primary
+from quantit.research.params import strategy_params, us_primary, hk_primary, cn_primary
+from quantit.research.universes import HK_QUALITY, CN_QUALITY
+from quantit.strategy.cn_book import CNQualityBookStrategy
+from quantit.strategy.hk_book import HKQualityBookStrategy, basket_momentum, invested_fraction
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights, is_month_end
 from quantit.strategy.signals import evaluate_signals, ma_signal, resolve_us_book_action, rsi_signal
 from quantit.strategy.tsmom import coerce_vol, tsmom_size
@@ -92,6 +95,7 @@ class PaperRunner:
         cn_score_loader: Callable[[], pd.DataFrame | None] | None = None,
         us_option_picker: Callable[[str, float, date], str | None] | None = None,
         interval_sec: int = 60,
+        eval_interval_sec: float = 0.0,
     ) -> None:
         self.broker = broker
         self.us_watch = us_watch
@@ -103,13 +107,31 @@ class PaperRunner:
         self.cn_score_loader = cn_score_loader
         self.us_option_picker = us_option_picker
         self.interval_sec = interval_sec
+        # Minimum seconds between per-symbol live evaluations (0 disables the
+        # throttle). Daily signals only change when a session closes, so polling
+        # quote APIs every tick burns free data sources (Yahoo 429, Eastmoney IP
+        # bans) for no benefit.
+        self.eval_interval_sec = eval_interval_sec
         self.running = False
         self.last_tick: datetime | None = None
         self.last_error: str | None = None
         self.actions: list[dict[str, Any]] = []
         self._acted: set[tuple[str, str, date]] = set()
+        self._last_eval: dict[tuple[str, str], datetime] = {}
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
+
+    def _due(self, market: str, symbol: str, now: datetime, force: bool) -> bool:
+        """Throttle live re-evaluations of ``symbol`` unless forced or not configured."""
+        if force or self.eval_interval_sec <= 0:
+            return True
+        last = self._last_eval.get((market, symbol))
+        if last is None:
+            return True
+        return (now - last).total_seconds() >= self.eval_interval_sec
+
+    def _note_eval(self, market: str, symbol: str, now: datetime) -> None:
+        self._last_eval[(market, symbol)] = now
 
     def snapshot(self) -> dict[str, Any]:
         from quantit.markets.assets import allowed_list
@@ -126,9 +148,9 @@ class PaperRunner:
             "allowed": {mid: allowed_list(mid) for mid in ("us", "hk", "cn")},
             "watchlists": {
                 "us": list(self.us_watch),
-                "hk": list(all_hstech_symbols()) + list(self.hk_etfs),
+                "hk": self._hk_equity_watch(),
                 "hk_warrants": list(self.hk_warrants),
-                "cn": list(all_cn_etf_symbols()) + [CN_ETF_FALLBACK],
+                "cn": self._cn_equity_watch(),
             },
             "actions": list(reversed(self.actions[-40:])),
         }
@@ -168,7 +190,7 @@ class PaperRunner:
         produced: list[dict[str, Any]] = []
         try:
             if "us" in wanted:
-                produced.extend(self._tick_us())
+                produced.extend(self._tick_us(force=force))
             if "hk" in wanted:
                 produced.extend(self._tick_hk(force=force))
                 produced.extend(self._tick_hk_warrants(force=force))
@@ -205,7 +227,7 @@ class PaperRunner:
             self.actions = self.actions[-200:]
         return row
 
-    def _tick_us(self) -> list[dict[str, Any]]:
+    def _tick_us(self, force: bool = False) -> list[dict[str, Any]]:
         adapter = self.broker.registry.get("us")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=400)
@@ -213,6 +235,10 @@ class PaperRunner:
         for symbol in self.us_watch:
             if self._already("us", symbol):
                 continue
+            now = self.broker.now()
+            if not self._due("us", symbol, now, force):
+                continue
+            self._note_eval("us", symbol, now)
             try:
                 bars = adapter.fetch_bars(symbol, "1d", start, end)
             except (ValueError, KeyError):
@@ -366,6 +392,10 @@ class PaperRunner:
         for symbol in self.hk_warrants:
             if not force and self._already("hk", symbol):
                 continue
+            now = self.broker.now()
+            if not self._due("hk", symbol, now, force):
+                continue
+            self._note_eval("hk", symbol, now)
             try:
                 bars = adapter.fetch_bars(symbol, "1d", start, end)
             except (ValueError, KeyError):
@@ -398,7 +428,19 @@ class PaperRunner:
                 out.append(self._record(order, why))
         return out
 
+    def _hk_equity_watch(self) -> list[str]:
+        if hk_primary() == "hk_quality_book":
+            return list(HK_QUALITY) + list(self.hk_etfs)
+        return list(all_hstech_symbols()) + list(self.hk_etfs)
+
+    def _cn_equity_watch(self) -> list[str]:
+        if cn_primary() == "cn_quality_book":
+            return list(CN_QUALITY)
+        return list(all_cn_etf_symbols()) + [CN_ETF_FALLBACK]
+
     def _tick_hk(self, force: bool = False) -> list[dict[str, Any]]:
+        if hk_primary() == "hk_quality_book":
+            return self._tick_hk_quality(force=force)
         if not force and self._already("hk", "HSTECH-ROTATION"):
             return []
 
@@ -475,7 +517,86 @@ class PaperRunner:
         self._mark("hk", "HSTECH-ROTATION")
         return orders
 
+    def _tick_hk_quality(self, force: bool = False) -> list[dict[str, Any]]:
+        if not force and self._already("hk", "HK-QUALITY-BOOK"):
+            return []
+        adapter = self.broker.registry.get("hk")
+        end = pd.Timestamp(self.broker.now())
+        start = end - pd.Timedelta(days=500)
+        ohlcv: dict[str, pd.DataFrame] = {}
+        calendar = None
+        for symbol in HK_QUALITY:
+            try:
+                bars = adapter.fetch_bars(symbol, "1d", start, end)
+            except (ValueError, KeyError):
+                continue
+            if bars is None or bars.empty:
+                continue
+            ohlcv[symbol] = bars
+            calendar = bars.index if calendar is None else calendar.union(bars.index)
+        if not ohlcv or calendar is None:
+            return []
+        calendar = pd.DatetimeIndex(calendar).normalize().sort_values().unique()
+        ts = pd.Timestamp(self.broker.now()).normalize()
+        asof = calendar[calendar <= ts]
+        if asof.empty:
+            return []
+        session = asof[-1]
+        if not force and not is_month_end(calendar, session):
+            return []
+        cfg = strategy_params("hk_quality_book")
+        defaults = HKQualityBookStrategy()
+        lookback = int(cfg.get("lookback", defaults.lookback))
+        skip = int(cfg.get("skip", defaults.skip))
+        risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
+        invested_on = float(cfg.get("invested_on", defaults.invested_on))
+        mom = basket_momentum(ohlcv, lookback, skip)
+        mom_val: float | None = None
+        if not mom.empty:
+            hit = mom.asof(session)
+            if hit is not None and not pd.isna(hit):
+                mom_val = float(hit)
+        frac = invested_fraction(mom_val, invested_on=invested_on, risk_off_scale=risk_off_scale)
+        prices: dict[str, float] = {}
+        for symbol in HK_QUALITY:
+            try:
+                q = adapter.fetch_quote(symbol)
+            except (ValueError, KeyError):
+                continue
+            if q.last > 0:
+                prices[symbol] = q.last
+        quoted = [s for s in HK_QUALITY if s in prices]
+        n = len(quoted)
+        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        account = self.broker.get_account("hk")
+        equity = account.cash
+        for pos in self.broker.list_positions("hk"):
+            px = prices.get(pos.symbol)
+            if px:
+                equity += px * pos.quantity
+        lot_sizes = {sym: adapter.lot_size(sym) for sym in set(prices) | set(target)}
+        target = feasible_hk_weights(target, prices, equity, lot_sizes, fallback="")
+        if mom_val is None:
+            why = f"HK quality basket TSMOM rebalance {session.date()} (momentum unavailable)"
+        else:
+            why = (
+                f"HK quality basket TSMOM rebalance {session.date()} "
+                f"(mom={mom_val:.2%} invested={frac:.0%})"
+            )
+        orders = self._rebalance_hk(
+            target,
+            prices,
+            session,
+            turnover_band=float(cfg.get("turnover_band", defaults.turnover_band)),
+            force=force,
+            why=why,
+        )
+        self._mark("hk", "HK-QUALITY-BOOK")
+        return orders
+
     def _tick_cn(self, force: bool = False) -> list[dict[str, Any]]:
+        if cn_primary() == "cn_quality_book":
+            return self._tick_cn_quality(force=force)
         if not force and self._already("cn", "CN-ETF-ROTATION"):
             return []
 
@@ -558,6 +679,84 @@ class PaperRunner:
             why=f"CN ETF theme rotation rebalance {session.date()}",
         )
         self._mark("cn", "CN-ETF-ROTATION")
+        return orders
+
+    def _tick_cn_quality(self, force: bool = False) -> list[dict[str, Any]]:
+        if not force and self._already("cn", "CN-QUALITY-BOOK"):
+            return []
+        adapter = self.broker.registry.get("cn")
+        end = pd.Timestamp(self.broker.now())
+        start = end - pd.Timedelta(days=500)
+        ohlcv: dict[str, pd.DataFrame] = {}
+        calendar = None
+        for symbol in CN_QUALITY:
+            try:
+                bars = adapter.fetch_bars(symbol, "1d", start, end)
+            except (ValueError, KeyError):
+                continue
+            if bars is None or bars.empty:
+                continue
+            ohlcv[symbol] = bars
+            calendar = bars.index if calendar is None else calendar.union(bars.index)
+        if not ohlcv or calendar is None:
+            return []
+        calendar = pd.DatetimeIndex(calendar).normalize().sort_values().unique()
+        ts = pd.Timestamp(self.broker.now()).normalize()
+        asof = calendar[calendar <= ts]
+        if asof.empty:
+            return []
+        session = asof[-1]
+        if not force and not is_month_end(calendar, session):
+            return []
+        cfg = strategy_params("cn_quality_book")
+        defaults = CNQualityBookStrategy()
+        lookback = int(cfg.get("lookback", defaults.lookback))
+        skip = int(cfg.get("skip", defaults.skip))
+        risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
+        invested_on = float(cfg.get("invested_on", defaults.invested_on))
+        mom = basket_momentum(ohlcv, lookback, skip)
+        mom_val: float | None = None
+        if not mom.empty:
+            hit = mom.asof(session)
+            if hit is not None and not pd.isna(hit):
+                mom_val = float(hit)
+        frac = invested_fraction(mom_val, invested_on=invested_on, risk_off_scale=risk_off_scale)
+        prices: dict[str, float] = {}
+        for symbol in CN_QUALITY:
+            try:
+                q = adapter.fetch_quote(symbol)
+            except (ValueError, KeyError):
+                continue
+            if q.last > 0:
+                prices[symbol] = q.last
+        quoted = [s for s in CN_QUALITY if s in prices]
+        n = len(quoted)
+        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        account = self.broker.get_account("cn")
+        equity = account.cash
+        for pos in self.broker.list_positions("cn"):
+            px = prices.get(pos.symbol)
+            if px:
+                equity += px * pos.quantity
+        lot_sizes = {sym: adapter.lot_size(sym) for sym in set(prices) | set(target)}
+        target = feasible_hk_weights(target, prices, equity, lot_sizes, fallback="")
+        if mom_val is None:
+            why = f"CN quality basket TSMOM rebalance {session.date()} (momentum unavailable)"
+        else:
+            why = (
+                f"CN quality basket TSMOM rebalance {session.date()} "
+                f"(mom={mom_val:.2%} invested={frac:.0%})"
+            )
+        orders = self._rebalance_hk(
+            target,
+            prices,
+            session,
+            turnover_band=float(cfg.get("turnover_band", defaults.turnover_band)),
+            force=force,
+            market_id="cn",
+            why=why,
+        )
+        self._mark("cn", "CN-QUALITY-BOOK")
         return orders
 
     def _rebalance_hk(

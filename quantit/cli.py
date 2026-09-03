@@ -21,9 +21,17 @@ def _cmd_backtest(args: argparse.Namespace) -> None:
 
 def _cmd_research(args: argparse.Namespace) -> None:
     from quantit.research.run import run_research
-    from quantit.research.universes import default_research_symbols
+    from quantit.research.universes import CN_QUALITY, HK_QUALITY, default_research_symbols
 
-    symbols = [s.strip() for s in (args.symbols or ",".join(default_research_symbols())).split(",") if s.strip()]
+    raw = (args.symbols or "").strip()
+    if raw:
+        symbols = [s.strip() for s in raw.split(",") if s.strip()]
+    elif args.strategy == "hk_quality_book":
+        symbols = list(HK_QUALITY)
+    elif args.strategy == "cn_quality_book":
+        symbols = list(CN_QUALITY)
+    else:
+        symbols = default_research_symbols()
     run_research(
         args.strategy,
         symbols=symbols,
@@ -183,14 +191,14 @@ def main() -> None:
     )
 
     research = sub.add_parser("research", help="Walk-forward parameter study (OOS vs buy-and-hold)")
-    research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation, cn_etf_rotation")
+    research.add_argument("--strategy", default="tsmom", help="tsmom, us_book, ma_crossover, rsi_mean_reversion, theme_rotation, cn_etf_rotation, hk_quality_book, cn_quality_book")
     research.add_argument("--symbols", default="", help="Comma-separated symbols (default: US quality book, not Nasdaq)")
     research.add_argument("--start", default="2012-01-01")
     research.add_argument("--end", default="2024-12-31")
     research.add_argument("--train", type=int, default=504)
     research.add_argument("--test", type=int, default=126)
     research.add_argument("--step", type=int, default=126)
-    research.add_argument("--promote", action="store_true", help="Write active_params.yaml if tsmom passes the gate")
+    research.add_argument("--promote", action="store_true", help="Write active_params.yaml if tsmom, hk_quality_book, or cn_quality_book passes the gate")
     research.add_argument("--report", default="", help="HTML report path")
 
     brief = sub.add_parser("brief", help="Policy/international brief from Finnhub (no sentiment trading)")

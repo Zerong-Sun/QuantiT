@@ -2,6 +2,7 @@
 
 from quantit.research.params import (
     active_params_path,
+    hk_primary,
     load_active_params,
     strategy_params,
     us_primary,
@@ -9,6 +10,7 @@ from quantit.research.params import (
 
 __all__ = [
     "active_params_path",
+    "hk_primary",
     "load_active_params",
     "strategy_params",
     "us_primary",

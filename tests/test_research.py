@@ -215,6 +215,12 @@ def test_walk_forward_empty_dict_does_not_crash() -> None:
     )
     assert cn.folds == []
     assert not cn.passed
+    hk = walk_forward("hk_quality_book", {}, symbol="HK", train=80, test=40, step=40)
+    assert hk.folds == []
+    assert not hk.passed
+    cn = walk_forward("cn_quality_book", {}, symbol="CN", train=80, test=40, step=40)
+    assert cn.folds == []
+    assert not cn.passed
 
 
 def test_cn_etf_rotation_walk_forward_synthetic() -> None:
@@ -244,6 +250,26 @@ def test_cn_etf_rotation_walk_forward_synthetic() -> None:
     )
     assert study.folds
     assert math.isfinite(study.oos_sharpe)
+
+
+def test_hk_quality_book_spec_is_promotable() -> None:
+    from quantit.research.specs import get_spec
+
+    spec = get_spec("hk_quality_book")
+    assert spec.kind == "multi"
+    assert spec.promote is True
+    assert spec.extra_keys == ()
+    assert len(spec.grid) == 6
+
+
+def test_cn_quality_book_spec_is_promotable() -> None:
+    from quantit.research.specs import get_spec
+
+    spec = get_spec("cn_quality_book")
+    assert spec.kind == "multi"
+    assert spec.promote is True
+    assert spec.extra_keys == ()
+    assert len(spec.grid) == 6
 
 
 def test_buy_and_hold_equal_weight_multi() -> None:

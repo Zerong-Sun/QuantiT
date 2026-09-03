@@ -26,6 +26,8 @@ def test_research_help(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.M
     assert "--strategy" in out
     assert "--promote" in out
     assert "cn_etf_rotation" in out
+    assert "hk_quality_book" in out
+    assert "cn_quality_book" in out
 
 
 def test_brief_help(capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:

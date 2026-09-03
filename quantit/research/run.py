@@ -16,6 +16,7 @@ from quantit.research.specs import get_spec
 from quantit.research.universes import (
     CN_QUALITY,
     CN_QUALITY_MARKET,
+    HK_QUALITY,
     US_QUALITY,
     US_QUALITY_BENCHMARK,
     YAHOO_ALIASES,
@@ -172,12 +173,23 @@ def run_research(
     names = symbols or default_research_symbols()
     extra: dict[str, Any] | None = None
     if spec.kind == "multi":
+        extra_wf: dict[str, Any] | None = None
         if strategy_id == "cn_etf_rotation":
             ohlcv, scores = _load_cn(start, end)
             label = "CN-ETF-ROTATION"
+            extra_wf = {"scores": scores}
+        elif strategy_id == "hk_quality_book":
+            pool = list(names) if names and set(names) != set(default_research_symbols()) else list(HK_QUALITY)
+            ohlcv = _load_frames(pool, start, end)
+            label = "HK-QUALITY-BOOK"
+        elif strategy_id == "cn_quality_book":
+            pool = list(names) if names and set(names) != set(default_research_symbols()) else list(CN_QUALITY)
+            ohlcv = _load_frames(pool, start, end)
+            label = "CN-QUALITY-BOOK"
         else:
             ohlcv, scores = _load_hk(start, end)
             label = "HSTECH-ROTATION"
+            extra_wf = {"scores": scores}
         if not ohlcv:
             raise SystemExit("No price data loaded")
         _print_coverage(ohlcv, start)
@@ -188,7 +200,7 @@ def run_research(
             train=train,
             test=test,
             step=step,
-            extra={"scores": scores},
+            extra=extra_wf,
         )
     else:
         frames = _load_frames(names, start, end)

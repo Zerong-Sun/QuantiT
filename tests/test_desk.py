@@ -95,6 +95,8 @@ class TestCatalog:
             "ma_crossover",
             "rsi_mean_reversion",
             "tsmom",
+            "hk_quality_book",
+            "cn_quality_book",
             "theme_rotation",
             "cn_etf_rotation",
         }
@@ -112,6 +114,7 @@ class TestCatalog:
         assert by_id["ma_crossover"]["markets"] == ["us"]
         assert by_id["theme_rotation"]["markets"] == ["hk"]
         assert by_id["cn_etf_rotation"]["markets"] == ["cn"]
+        assert by_id["cn_quality_book"]["markets"] == ["cn"]
 
     def test_api_lists_and_filters(self, client: TestClient) -> None:
         all_rows = client.get("/api/v1/strategies").json()
@@ -119,13 +122,15 @@ class TestCatalog:
             "ma_crossover",
             "rsi_mean_reversion",
             "tsmom",
+            "hk_quality_book",
+            "cn_quality_book",
             "theme_rotation",
             "cn_etf_rotation",
         }
         hk = client.get("/api/v1/strategies", params={"market": "hk"}).json()
-        assert [r["id"] for r in hk] == ["theme_rotation"]
+        assert [r["id"] for r in hk] == ["hk_quality_book", "theme_rotation"]
         cn = client.get("/api/v1/strategies", params={"market": "cn"}).json()
-        assert [r["id"] for r in cn] == ["cn_etf_rotation"]
+        assert [r["id"] for r in cn] == ["cn_quality_book", "cn_etf_rotation"]
         one = client.get("/api/v1/strategies/ma_crossover").json()
         assert one["class_name"] == "MACrossoverStrategy"
         missing = client.get("/api/v1/strategies/does-not-exist")
@@ -245,15 +250,21 @@ class TestSignals:
         assert us["headline"]
         hk = client.get("/api/v1/signals", params={"market": "hk", "symbol": "0700.HK"}).json()
         hk_ids = {s["strategy_id"] for s in hk["signals"]}
-        assert hk_ids == {"theme_rotation"}
+        assert hk_ids == {"theme_rotation", "hk_quality_book"}
         theme = next(s for s in hk["signals"] if s["strategy_id"] == "theme_rotation")
         assert theme["values"]["theme"] == "platforms"
+        quality = next(s for s in hk["signals"] if s["strategy_id"] == "hk_quality_book")
+        assert quality["action"] == "hold"
         cn = client.get("/api/v1/signals", params={"market": "cn", "symbol": "600519.SS"}).json()
-        assert {s["strategy_id"] for s in cn["signals"]} == {"cn_etf_rotation"}
-        assert cn["signals"][0]["action"] == "hold"
+        assert {s["strategy_id"] for s in cn["signals"]} == {"cn_quality_book", "cn_etf_rotation"}
+        quality = next(s for s in cn["signals"] if s["strategy_id"] == "cn_quality_book")
+        assert quality["action"] == "watch"
+        etf_sig = next(s for s in cn["signals"] if s["strategy_id"] == "cn_etf_rotation")
+        assert etf_sig["action"] == "hold"
         etf = client.get("/api/v1/signals", params={"market": "cn", "symbol": "512480.SS"}).json()
-        assert etf["signals"][0]["action"] == "watch"
-        assert etf["signals"][0]["values"]["theme"] == "semis"
+        etf_member = next(s for s in etf["signals"] if s["strategy_id"] == "cn_etf_rotation")
+        assert etf_member["action"] == "watch"
+        assert etf_member["values"]["theme"] == "semis"
 
     def test_signals_always_fetch_daily(self) -> None:
         from quantit.api.app import create_app
@@ -279,12 +290,13 @@ class TestSignals:
             "tsmom",
         }
         hk = evaluate_signals("hk", "0700.HK", _ohlcv())
-        assert [s["strategy_id"] for s in hk["signals"]] == ["theme_rotation"]
+        assert {s["strategy_id"] for s in hk["signals"]} == {"hk_quality_book", "theme_rotation"}
         cn = evaluate_signals("cn", "600519.SS", _ohlcv())
-        assert [s["strategy_id"] for s in cn["signals"]] == ["cn_etf_rotation"]
-        assert cn["signals"][0]["action"] == "hold"
+        assert [s["strategy_id"] for s in cn["signals"]] == ["cn_quality_book", "cn_etf_rotation"]
+        assert cn["signals"][0]["action"] == "watch"
         etf = evaluate_signals("cn", "512480.SS", _ohlcv())
-        assert etf["signals"][0]["action"] == "watch"
+        etf_member = next(s for s in etf["signals"] if s["strategy_id"] == "cn_etf_rotation")
+        assert etf_member["action"] == "watch"
 
     def test_shared_cross_helper(self) -> None:
         assert ma_cross_side(10, 11, 12, 11) == "buy"

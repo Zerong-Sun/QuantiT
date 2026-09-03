@@ -116,6 +116,13 @@ HK_NAMES: dict[str, str] = {
     "9866.HK": "NIO",
     "9868.HK": "XPeng",
     "9863.HK": "Leapmotor",
+    "0002.HK": "CLP Holdings",
+    "0941.HK": "China Mobile",
+    "0005.HK": "HSBC Holdings",
+    "1299.HK": "AIA Group",
+    "0388.HK": "HKEX",
+    "0001.HK": "CK Hutchison",
+    "0669.HK": "Techtronic",
     **HK_ETFS,
 }
 

@@ -12,8 +12,11 @@ import inspect
 from typing import Any, Callable
 
 from quantit.features.regime import DEMAND_WEIGHT, INTL_WEIGHT, POLICY_WEIGHT
-from quantit.markets.cn import CN_ETF_NAMES, CN_ETF_THEMES
+from quantit.markets.cn import CN_ETF_NAMES, CN_ETF_THEMES, CN_STOCK_UNIVERSE
 from quantit.markets.hk import HK_NAMES, HSTECH_THEMES
+from quantit.research.universes import CN_QUALITY, HK_QUALITY
+from quantit.strategy.cn_book import CNQualityBookStrategy
+from quantit.strategy.hk_book import HKQualityBookStrategy
 from quantit.strategy.regime import ThemeRotationStrategy
 from quantit.strategy.technical import MACrossoverStrategy, RSIMeanReversionStrategy
 from quantit.strategy.tsmom import TSMOMStrategy
@@ -36,6 +39,8 @@ PARAM_HELP: dict[str, str] = {
     "vol_floor": "Minimum realized vol so size cannot explode.",
     "max_position_pct": "Cap on equity deployed in the name.",
     "rebalance_band": "Ignore size changes smaller than this fraction of the current position.",
+    "risk_off_scale": "When momentum is off, hold this fraction of the risk-on sleeve.",
+    "invested_on": "Equity fraction in the equal-weight book when basket momentum is positive.",
 }
 
 
@@ -162,6 +167,72 @@ def _theme_entry() -> dict[str, Any]:
     }
 
 
+def _hk_quality_universe() -> dict[str, list[dict[str, str]]]:
+    return {
+        "quality": [{"symbol": s, "name": HK_NAMES.get(s, s)} for s in HK_QUALITY],
+    }
+
+
+def _cn_quality_universe() -> dict[str, list[dict[str, str]]]:
+    return {
+        "quality": [{"symbol": s, "name": CN_STOCK_UNIVERSE.get(s, s)} for s in CN_QUALITY],
+    }
+
+
+def _hk_quality_entry() -> dict[str, Any]:
+    return {
+        "id": "hk_quality_book",
+        "name": "HK Quality Basket TSMOM",
+        "class_name": HKQualityBookStrategy.__name__,
+        "markets": ["hk"],
+        "horizon": "Monthly, multi-asset",
+        "summary": inspect.getdoc(HKQualityBookStrategy) or "",
+        "thesis": (
+            "One time-series momentum signal on an equal-weight book of operating "
+            "Hong Kong blue chips (grid, bank, insurance, exchange, industrials). "
+            "Not Hang Seng TECH rotation. Price only — quality labels pick the pool."
+        ),
+        "rules": [
+            "Rebalance on the last HK session of each month.",
+            "Momentum = skipped lookback return of the equal-weight close index.",
+            "If momentum > 0, invest invested_on equally across names with a quote.",
+            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash).",
+            "Names that cannot fill one board lot stay out; residual weight is cash, not 3033.HK.",
+            "Paper runner uses this card only after a walk-forward promote with hk_primary: hk_quality_book.",
+        ],
+        "parameters": _params(HKQualityBookStrategy, skip=frozenset({"universe"})),
+        "universe": _hk_quality_universe(),
+        "score_weights": None,
+    }
+
+
+def _cn_quality_entry() -> dict[str, Any]:
+    return {
+        "id": "cn_quality_book",
+        "name": "CN Quality Basket TSMOM",
+        "class_name": CNQualityBookStrategy.__name__,
+        "markets": ["cn"],
+        "horizon": "Monthly, multi-asset",
+        "summary": inspect.getdoc(CNQualityBookStrategy) or "",
+        "thesis": (
+            "One time-series momentum signal on an equal-weight book of operating "
+            "A-share blue chips (appliance, pharma, power, bank, insurance, consumer). "
+            "Not industry-ETF rotation. Price only — quality labels pick the pool."
+        ),
+        "rules": [
+            "Rebalance on the last A-share session of each month.",
+            "Momentum = skipped lookback return of the equal-weight close index.",
+            "If momentum > 0, invest invested_on equally across names with a quote.",
+            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash).",
+            "Names that cannot fill one 100-share lot stay out; residual weight is cash, not 510300.SS.",
+            "Paper runner uses this card only after a walk-forward promote with cn_primary: cn_quality_book.",
+        ],
+        "parameters": _params(CNQualityBookStrategy, skip=frozenset({"universe"})),
+        "universe": _cn_quality_universe(),
+        "score_weights": None,
+    }
+
+
 def _cn_etf_entry() -> dict[str, Any]:
     return {
         "id": "cn_etf_rotation",
@@ -229,6 +300,8 @@ _BUILDERS: dict[str, Callable[[], dict[str, Any]]] = {
     "ma_crossover": _ma_entry,
     "rsi_mean_reversion": _rsi_entry,
     "tsmom": _tsmom_entry,
+    "hk_quality_book": _hk_quality_entry,
+    "cn_quality_book": _cn_quality_entry,
     "theme_rotation": _theme_entry,
     "cn_etf_rotation": _cn_etf_entry,
 }
