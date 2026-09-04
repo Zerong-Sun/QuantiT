@@ -16,11 +16,10 @@ from quantit.research.specs import get_spec
 from quantit.research.universes import (
     CN_QUALITY,
     CN_QUALITY_MARKET,
-    HK_QUALITY,
     US_QUALITY,
     US_QUALITY_BENCHMARK,
     YAHOO_ALIASES,
-    default_research_symbols,
+    traded_universe,
 )
 from quantit.research.walk_forward import StudyResult, walk_forward
 
@@ -48,7 +47,7 @@ def _combine(studies: list[StudyResult]) -> StudyResult:
         bh_drawdown=min(s.bh_drawdown for s in studies),
         best_params=best_params,
     )
-    from quantit.research.gates import evaluate_gates
+    from quantit.research.gates import evaluate_gates, evaluate_promote_gates
 
     combined.gate = evaluate_gates(
         oos_sharpe=combined.oos_sharpe,
@@ -56,6 +55,14 @@ def _combine(studies: list[StudyResult]) -> StudyResult:
         oos_trades=combined.oos_trades,
         buy_hold_sharpe=combined.bh_sharpe,
         buy_hold_drawdown=combined.bh_drawdown,
+    )
+    combined.promote_gate = evaluate_promote_gates(
+        oos_sharpe=combined.oos_sharpe,
+        oos_drawdown=combined.oos_drawdown,
+        oos_trades=combined.oos_trades,
+        buy_hold_sharpe=combined.bh_sharpe,
+        buy_hold_drawdown=combined.bh_drawdown,
+        folds=combined.folds,
     )
     return combined
 
@@ -170,7 +177,7 @@ def run_research(
     report_path: str | Path | None = None,
 ) -> StudyResult:
     spec = get_spec(strategy_id)
-    names = symbols or default_research_symbols()
+    names = traded_universe(strategy_id, symbols)
     extra: dict[str, Any] | None = None
     if spec.kind == "multi":
         extra_wf: dict[str, Any] | None = None
@@ -179,12 +186,10 @@ def run_research(
             label = "CN-ETF-ROTATION"
             extra_wf = {"scores": scores}
         elif strategy_id == "hk_quality_book":
-            pool = list(names) if names and set(names) != set(default_research_symbols()) else list(HK_QUALITY)
-            ohlcv = _load_frames(pool, start, end)
+            ohlcv = _load_frames(names, start, end)
             label = "HK-QUALITY-BOOK"
         elif strategy_id == "cn_quality_book":
-            pool = list(names) if names and set(names) != set(default_research_symbols()) else list(CN_QUALITY)
-            ohlcv = _load_frames(pool, start, end)
+            ohlcv = _load_frames(names, start, end)
             label = "CN-QUALITY-BOOK"
         else:
             ohlcv, scores = _load_hk(start, end)
@@ -232,9 +237,14 @@ def run_research(
     dest = Path(report_path) if report_path else research_dir() / f"{strategy_id}_study.html"
     print(f"OOS Sharpe {study.oos_sharpe:.2f} vs buy-and-hold {study.bh_sharpe:.2f}")
     print(f"OOS max DD {study.oos_drawdown:.2%} vs buy-and-hold {study.bh_drawdown:.2%}")
-    print(f"Gate: {'PASS' if study.passed else 'FAIL'}")
+    print(f"Report gate: {'PASS' if study.passed else 'FAIL'}")
     if study.gate and study.gate.reasons:
         for reason in study.gate.reasons:
+            print(f"  - {reason}")
+    promo = study.promote_gate
+    print(f"Promote gate: {'PASS' if promo and promo.passed else 'FAIL'}")
+    if promo and promo.reasons:
+        for reason in promo.reasons:
             print(f"  - {reason}")
     by_reg = regime_summary(study)
     print(
@@ -288,9 +298,19 @@ def run_research(
         except (SystemExit, ValueError, KeyError):
             pass
     if promote:
-        written = maybe_promote(strategy_id, study.best_params, study.gate) if study.gate else None
+        written = (
+            maybe_promote(
+                strategy_id,
+                study.best_params,
+                study.gate,
+                symbols=names,
+                promote_gate=study.promote_gate,
+            )
+            if study.gate
+            else None
+        )
         if written is None:
-            print("Not promoted (gate failed or strategy is baseline-only).")
+            print("Not promoted (promote gate failed, universe is not the paper pool, or strategy is baseline-only).")
         else:
             print(f"Promoted parameters: {written}")
     return study

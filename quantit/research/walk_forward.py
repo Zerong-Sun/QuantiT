@@ -8,7 +8,7 @@ import math
 
 import pandas as pd
 
-from quantit.research.gates import GateResult, evaluate_gates, fold_regime
+from quantit.research.gates import GateResult, evaluate_gates, evaluate_promote_gates, fold_regime
 from quantit.research.search import (
     _is_empty,
     buy_and_hold_metrics,
@@ -54,6 +54,7 @@ class StudyResult:
     bh_drawdown: float = 0.0
     best_params: dict[str, Any] = field(default_factory=dict)
     gate: GateResult | None = None
+    promote_gate: GateResult | None = None
 
     @property
     def passed(self) -> bool:
@@ -156,6 +157,7 @@ def walk_forward(
         )
     if not study.folds:
         study.gate = GateResult(passed=False, reasons=("Not enough bars for walk-forward folds",))
+        study.promote_gate = study.gate
         return study
     study.oos_sharpe = _mean([float(f.oos_metrics.get("sharpe_ratio") or 0.0) for f in study.folds])
     study.oos_drawdown = min(float(f.oos_metrics.get("max_drawdown") or 0.0) for f in study.folds)
@@ -169,6 +171,14 @@ def walk_forward(
         oos_trades=study.oos_trades,
         buy_hold_sharpe=study.bh_sharpe,
         buy_hold_drawdown=study.bh_drawdown,
+    )
+    study.promote_gate = evaluate_promote_gates(
+        oos_sharpe=study.oos_sharpe,
+        oos_drawdown=study.oos_drawdown,
+        oos_trades=study.oos_trades,
+        buy_hold_sharpe=study.bh_sharpe,
+        buy_hold_drawdown=study.bh_drawdown,
+        folds=study.folds,
     )
     return study
 

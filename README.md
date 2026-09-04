@@ -8,7 +8,7 @@ A research-oriented quantitative trading platform for US equities, Hong Kong lon
 - **Markets**: Pluggable `MarketAdapter` registry (`us`, `hk`, `cn`) — add a venue without changing API routes
 - **Factors**: Technical indicators (SMA, EMA, RSI, MACD, Bollinger, ATR, momentum, volatility)
 - **Strategies**: Time-series momentum with volatility targeting (US research default); MA/RSI `us_book` as a paper baseline; HK monthly theme rotation; CN industry ETF monthly rotation
-- **Research**: Walk-forward grid search (`quantit research`); OOS Sharpe vs buy-and-hold; promote tsmom params to `~/.quantit/research/active_params.yaml`
+- **Research**: Walk-forward grid search (`quantit research`); report gate vs stricter promote gate; only the paper quality universe can write `~/.quantit/research/active_params.yaml`. See `research/BASELINE.md`.
 - **Backtest**: Bar-by-bar simulation; single-name signals fill on the next bar's open by default
 - **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, four currency sub-accounts (US $100k stocks/ETFs/options, HK $1m stocks/ETFs/warrants, CN ¥1m stocks and ETFs, plus an isolated **CL ¥1m** CSI300 research book). A-share T+1 and board lots. Top-bar **Research** (`/research`) runs Closeloop (Alpha101 + gates) without mixing into US/HK/CN.
 - **Analysis**: Performance metrics, Plotly charts, HTML reports
@@ -33,12 +33,13 @@ python examples/cn_etf_rotation.py
 # CLI backtest (MA crossover)
 quantit backtest --symbol AAPL --start 2020-01-01 --end 2024-12-31
 
-# Walk-forward research (default: tsmom). Gate uses OOS Sharpe vs buy-and-hold, not win rate.
+# Walk-forward research (default: US quality book, not Nasdaq). Report gate ≠ promote gate.
+quantit research --strategy tsmom --start 2012-01-01 --end 2024-12-31
+# Nasdaq contrast is audit-only — do not pass --promote.
 quantit research --strategy tsmom --symbols AAPL,MSFT,NVDA,SPY,QQQ \
-  --start 2018-01-01 --end 2024-12-31 --promote
-quantit research --strategy us_book --symbols AAPL,MSFT,NVDA,SPY,QQQ \
-  --start 2018-01-01 --end 2024-12-31
-quantit research --strategy theme_rotation --start 2020-01-01 --end 2024-12-31
+  --start 2012-01-01 --end 2024-12-31
+quantit research --strategy hk_quality_book --start 2012-01-01 --end 2024-12-31
+quantit research --strategy cn_quality_book --start 2012-01-01 --end 2024-12-31
 ```
 
 ### Paper trading terminal (US / HK / A-shares)

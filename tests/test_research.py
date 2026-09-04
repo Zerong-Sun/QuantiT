@@ -8,11 +8,25 @@ import math
 import pandas as pd
 import pytest
 
-from quantit.research.gates import evaluate_gates, fold_regime
+from quantit.research.gates import evaluate_gates, evaluate_promote_gates, fold_regime
 from quantit.research.params import clear_params_cache, load_active_params
 from quantit.research.promote import maybe_promote
 from quantit.research.search import grid_search
 from quantit.research.walk_forward import iter_folds, walk_forward
+
+
+def _bear_fold(oos_dd: float, bh_dd: float, oos_sharpe: float = 0.1):
+    from quantit.research.walk_forward import FoldResult
+
+    return FoldResult(
+        train=slice(0, 1),
+        test=slice(1, 2),
+        params={},
+        is_metrics={},
+        oos_metrics={"sharpe_ratio": oos_sharpe, "max_drawdown": oos_dd, "total_trades": 8},
+        bh_metrics={"sharpe_ratio": -0.2, "max_drawdown": bh_dd},
+        regime="bear",
+    )
 
 
 def _trend(n: int = 200, start: str = "2018-01-01") -> pd.DataFrame:
@@ -99,16 +113,93 @@ def test_promote_tsmom_writes_yaml(tmp_path: Path) -> None:
         buy_hold_sharpe=0.4,
     )
     assert gate.passed
+    promo = evaluate_promote_gates(
+        oos_sharpe=1.2,
+        oos_drawdown=-0.1,
+        oos_trades=20,
+        buy_hold_sharpe=0.4,
+        buy_hold_drawdown=-0.2,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
     path = maybe_promote(
         strategy_id="tsmom",
         params={"lookback": 252, "skip": 21, "target_vol": 0.15},
         gate=gate,
         path=tmp_path / "active_params.yaml",
+        promote_gate=promo,
     )
     assert path is not None
     payload = load_active_params(path)
     assert payload["us_primary"] == "tsmom"
     assert payload["strategies"]["tsmom"]["lookback"] == 252
+
+
+def test_promote_without_promote_gate_does_not_write(tmp_path: Path) -> None:
+    gate = evaluate_gates(oos_sharpe=1.2, oos_drawdown=-0.1, oos_trades=20, buy_hold_sharpe=0.4)
+    written = maybe_promote(
+        strategy_id="tsmom",
+        params={"lookback": 252},
+        gate=gate,
+        path=tmp_path / "active_params.yaml",
+    )
+    assert written is None
+
+
+def test_gate_rejects_non_finite_sharpe() -> None:
+    gate = evaluate_gates(
+        oos_sharpe=float("nan"),
+        oos_drawdown=-0.05,
+        oos_trades=10,
+        buy_hold_sharpe=0.4,
+        buy_hold_drawdown=-0.20,
+    )
+    assert not gate.passed
+
+
+def test_promote_gate_without_folds_fails() -> None:
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.80,
+        oos_drawdown=-0.10,
+        oos_trades=20,
+        buy_hold_sharpe=0.50,
+        buy_hold_drawdown=-0.20,
+        folds=None,
+    )
+    assert not promo.passed
+    assert any("bear" in r.lower() for r in promo.reasons)
+
+
+def test_promote_gate_zero_drawdown_does_not_count_as_calmar_edge() -> None:
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.20,
+        oos_drawdown=0.0,
+        oos_trades=20,
+        buy_hold_sharpe=0.80,
+        buy_hold_drawdown=0.0,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
+    assert not promo.passed
+
+
+def test_empty_symbol_list_does_not_promote(tmp_path: Path) -> None:
+    gate = evaluate_gates(oos_sharpe=1.2, oos_drawdown=-0.1, oos_trades=20, buy_hold_sharpe=0.4)
+    promo = evaluate_promote_gates(
+        oos_sharpe=1.2,
+        oos_drawdown=-0.1,
+        oos_trades=20,
+        buy_hold_sharpe=0.4,
+        buy_hold_drawdown=-0.2,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
+    written = maybe_promote(
+        "tsmom",
+        {"lookback": 252},
+        gate,
+        path=tmp_path / "active_params.yaml",
+        symbols=[],
+        promote_gate=promo,
+    )
+    assert written is None
 
 
 def test_gate_allows_lagging_buy_hold_when_drawdown_ok() -> None:
@@ -197,6 +288,8 @@ def test_walk_forward_too_short_fails_gate() -> None:
     assert study.folds == []
     assert not study.passed
     assert study.gate is not None
+    assert study.promote_gate is not None
+    assert not study.promote_gate.passed
     assert any("enough bars" in r.lower() or "not enough" in r.lower() for r in study.gate.reasons)
 
 
@@ -333,6 +426,8 @@ def test_tsmom_report_includes_us_book_column() -> None:
     assert "US book" in html or "us_book" in html
     assert "OOS window" in html
     assert "Regime" in html
+    assert "Report gate" in html
+    assert "Promote gate" in html
     assert study.folds[0].us_book_metrics
     assert study.folds[0].test_start
     assert study.folds[0].regime in {"bull", "bear", "flat"}
@@ -366,3 +461,113 @@ def test_default_research_symbols_are_us_quality() -> None:
     assert default_research_symbols() == list(US_QUALITY)
     assert "NVDA" not in default_research_symbols()
     assert "QQQ" not in default_research_symbols()
+
+
+def test_report_gate_still_allows_lagging_buy_hold() -> None:
+    from quantit.research.gates import evaluate_gates, evaluate_promote_gates
+
+    report = evaluate_gates(
+        oos_sharpe=0.05,
+        oos_drawdown=-0.18,
+        oos_trades=20,
+        buy_hold_sharpe=0.53,
+        buy_hold_drawdown=-0.50,
+    )
+    assert report.passed
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.05,
+        oos_drawdown=-0.18,
+        oos_trades=20,
+        buy_hold_sharpe=0.53,
+        buy_hold_drawdown=-0.50,
+        folds=[_bear_fold(-0.10, -0.40), _bear_fold(-0.12, -0.35)],
+    )
+    assert not promo.passed
+    assert any("buy-and-hold" in r.lower() or "calmar" in r.lower() for r in promo.reasons)
+
+
+def test_promote_gate_allows_calmar_advantage() -> None:
+    from quantit.research.gates import evaluate_promote_gates
+
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.40,
+        oos_drawdown=-0.10,
+        oos_trades=20,
+        buy_hold_sharpe=0.65,
+        buy_hold_drawdown=-0.50,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
+    assert promo.passed
+
+
+def test_promote_gate_needs_two_bear_folds() -> None:
+    from quantit.research.gates import evaluate_promote_gates
+
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.80,
+        oos_drawdown=-0.10,
+        oos_trades=20,
+        buy_hold_sharpe=0.50,
+        buy_hold_drawdown=-0.20,
+        folds=[_bear_fold(-0.08, -0.40)],
+    )
+    assert not promo.passed
+    assert any("bear" in r.lower() for r in promo.reasons)
+
+
+def test_nasdaq_universe_does_not_promote(tmp_path: Path) -> None:
+    from quantit.research.gates import evaluate_gates, evaluate_promote_gates
+    from quantit.research.universes import US_NASDAQ_CONTRAST, US_QUALITY
+
+    report = evaluate_gates(oos_sharpe=0.80, oos_drawdown=-0.10, oos_trades=20, buy_hold_sharpe=0.50)
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.80,
+        oos_drawdown=-0.10,
+        oos_trades=20,
+        buy_hold_sharpe=0.50,
+        buy_hold_drawdown=-0.20,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
+    assert report.passed
+    assert promo.passed
+    written = maybe_promote(
+        "tsmom",
+        {"lookback": 252},
+        report,
+        path=tmp_path / "active_params.yaml",
+        symbols=list(US_NASDAQ_CONTRAST),
+        promote_gate=promo,
+    )
+    assert written is None
+    ok = maybe_promote(
+        "tsmom",
+        {"lookback": 252},
+        report,
+        path=tmp_path / "active_params.yaml",
+        symbols=list(US_QUALITY),
+        promote_gate=promo,
+    )
+    assert ok is not None
+
+
+def test_paper_watchlist_matches_quality_universe() -> None:
+    from quantit.paper.capital import US_WATCHLIST
+    from quantit.research.universes import (
+        CN_QUALITY,
+        HK_QUALITY,
+        US_QUALITY,
+        promote_universe,
+    )
+
+    assert tuple(US_WATCHLIST) == US_QUALITY
+    assert promote_universe("tsmom") == US_QUALITY
+    assert promote_universe("hk_quality_book") == HK_QUALITY
+    assert promote_universe("cn_quality_book") == CN_QUALITY
+    assert promote_universe("theme_rotation") is None
+    from quantit.research.universes import US_NASDAQ_CONTRAST, traded_universe
+
+    assert traded_universe("hk_quality_book", None) == list(HK_QUALITY)
+    assert traded_universe("cn_quality_book", None) == list(CN_QUALITY)
+    assert traded_universe("tsmom", None) == list(US_QUALITY)
+    assert traded_universe("hk_quality_book", list(US_QUALITY)) == list(HK_QUALITY)
+    assert traded_universe("tsmom", list(US_NASDAQ_CONTRAST)) == list(US_NASDAQ_CONTRAST)

@@ -79,3 +79,41 @@ CN_QUALITY_MARKET: str = "510300.SS"
 def default_research_symbols() -> list[str]:
     """CLI default: US quality book, not the paper Nasdaq watchlist."""
     return list(US_QUALITY)
+
+
+def promote_universe(strategy_id: str) -> tuple[str, ...] | None:
+    """Paper watchlist that --promote is allowed to write. Nasdaq contrast is None."""
+    mapping: dict[str, tuple[str, ...]] = {
+        "tsmom": US_QUALITY,
+        "hk_quality_book": HK_QUALITY,
+        "cn_quality_book": CN_QUALITY,
+    }
+    return mapping.get(strategy_id)
+
+
+def traded_universe(strategy_id: str, names: list[str] | None) -> list[str]:
+    """Symbols the study actually trades. Quality books ignore a leftover US default."""
+    requested = [str(s).strip() for s in (names or []) if s and str(s).strip()]
+    default_us = {s.upper() for s in US_QUALITY}
+    if strategy_id == "hk_quality_book":
+        if requested and {s.upper() for s in requested} != default_us:
+            return requested
+        return list(HK_QUALITY)
+    if strategy_id == "cn_quality_book":
+        if requested and {s.upper() for s in requested} != default_us:
+            return requested
+        return list(CN_QUALITY)
+    return requested or list(US_QUALITY)
+
+
+def universe_allows_promote(strategy_id: str, symbols: list[str] | None) -> bool:
+    """True when symbols match the paper quality pool (or were omitted = CLI default)."""
+    allowed = promote_universe(strategy_id)
+    if allowed is None:
+        return False
+    if symbols is None:
+        return True
+    have = {s.strip().upper() for s in symbols if s and str(s).strip()}
+    if not have:
+        return False
+    return have == {s.upper() for s in allowed}

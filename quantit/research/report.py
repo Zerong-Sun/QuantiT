@@ -84,6 +84,11 @@ def render_study(study: StudyResult, output_path: str | Path | None = None) -> s
     reasons = ""
     if gate and gate.reasons:
         reasons = "<ul>" + "".join(f"<li>{r}</li>" for r in gate.reasons) + "</ul>"
+    promo = study.promote_gate
+    promo_status = "PASS" if promo and promo.passed else "FAIL"
+    promo_reasons = ""
+    if promo and promo.reasons:
+        promo_reasons = "<ul>" + "".join(f"<li>{r}</li>" for r in promo.reasons) + "</ul>"
     rows = ""
     show_ub = study.strategy_id == "tsmom" or any(f.us_book_metrics for f in study.folds)
     for i, fold in enumerate(study.folds, start=1):
@@ -125,13 +130,17 @@ def render_study(study: StudyResult, output_path: str | Path | None = None) -> s
 <body>
 <h1>QuantiT research study</h1>
 <p>{study.strategy_id} / {study.symbol} / {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-<p class="{'pass' if study.passed else 'fail'}">Gate: {status}</p>
+<p class="{'pass' if study.passed else 'fail'}">Report gate: {status}</p>
 {reasons}
+<p class="{'pass' if promo and promo.passed else 'fail'}">Promote gate: {promo_status}</p>
+{promo_reasons}
 <p>OOS Sharpe {_num(study.oos_sharpe)} | OOS max DD {_pct(study.oos_drawdown)} |
 OOS trades {study.oos_trades:.0f} | Buy-and-hold Sharpe {_num(study.bh_sharpe)} |
 BH max DD {_pct(study.bh_drawdown)}</p>
 <p>Last-fold params: {study.best_params}</p>
-<p>KPI is OOS Sharpe and drawdown vs buy-and-hold (Sharpe need not beat BH). Not win rate.</p>
+<p>Report gate: OOS Sharpe &gt; 0, drawdown, trades (need not beat buy-and-hold).
+Promote gate: Sharpe ≥ BH or Calmar-like advantage, and at least two bear folds within drawdown.
+Nasdaq contrast universes cannot promote.</p>
 <table>
 <thead><tr><th>Fold</th><th>OOS window</th><th>Regime</th><th>IS params</th><th>IS Sharpe</th><th>OOS Sharpe</th><th>OOS DD</th><th>OOS Calmar</th><th>OOS trades</th><th>BH Sharpe</th><th>BH DD</th><th>BH Calmar</th>{ub_header}</tr></thead>
 <tbody>{rows}</tbody>

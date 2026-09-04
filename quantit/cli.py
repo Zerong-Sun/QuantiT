@@ -198,7 +198,7 @@ def main() -> None:
     research.add_argument("--train", type=int, default=504)
     research.add_argument("--test", type=int, default=126)
     research.add_argument("--step", type=int, default=126)
-    research.add_argument("--promote", action="store_true", help="Write active_params.yaml if tsmom, hk_quality_book, or cn_quality_book passes the gate")
+    research.add_argument("--promote", action="store_true", help="Write active_params.yaml only if the promote gate passes on the paper quality universe (not Nasdaq)")
     research.add_argument("--report", default="", help="HTML report path")
 
     brief = sub.add_parser("brief", help="Policy/international brief from Finnhub (no sentiment trading)")

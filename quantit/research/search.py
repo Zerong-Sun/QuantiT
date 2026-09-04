@@ -128,6 +128,9 @@ def run_backtest(
     metric_start: object | None = None,
     metric_end: object | None = None,
     active_from: object | None = None,
+    fill_on: str | None = None,
+    slippage_rate: float | None = None,
+    commission_rate: float | None = None,
 ) -> dict[str, Any]:
     spec = get_spec(strategy_id)
     if spec.kind == "multi":
@@ -142,7 +145,13 @@ def run_backtest(
         strategy = spec.builder(**params)
     if active_from is not None:
         strategy = DelayedStart(strategy, active_from)
-    result = Backtester(initial_cash=initial_cash).run(strategy, data, symbol=symbol)
+    engine = Backtester(
+        initial_cash=initial_cash,
+        fill_on=fill_on,
+        slippage_rate=slippage_rate,
+        commission_rate=commission_rate,
+    )
+    result = engine.run(strategy, data, symbol=symbol)
     start = pd.Timestamp(metric_start).to_pydatetime() if metric_start is not None else None
     end = pd.Timestamp(metric_end).to_pydatetime() if metric_end is not None else None
     metrics = compute_metrics(result, start=start, end=end)

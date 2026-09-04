@@ -106,11 +106,34 @@ def test_promote_writes_cn_primary_keeps_us_hk(tmp_path: Path) -> None:
         path=tmp_path / "active_params.yaml",
     )
     gate = evaluate_gates(oos_sharpe=0.4, oos_drawdown=-0.1, oos_trades=20, buy_hold_sharpe=0.3)
+    from quantit.research.gates import evaluate_promote_gates
+    from quantit.research.walk_forward import FoldResult
+
+    def _bear(oos_dd: float, bh_dd: float) -> FoldResult:
+        return FoldResult(
+            train=slice(0, 1),
+            test=slice(1, 2),
+            params={},
+            is_metrics={},
+            oos_metrics={"sharpe_ratio": 0.4, "max_drawdown": oos_dd, "total_trades": 8},
+            bh_metrics={"sharpe_ratio": -0.2, "max_drawdown": bh_dd},
+            regime="bear",
+        )
+
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.4,
+        oos_drawdown=-0.1,
+        oos_trades=20,
+        buy_hold_sharpe=0.3,
+        buy_hold_drawdown=-0.2,
+        folds=[_bear(-0.08, -0.40), _bear(-0.09, -0.30)],
+    )
     path = maybe_promote(
         "cn_quality_book",
         {"lookback": 252, "skip": 21, "risk_off_scale": 0.5},
         gate,
         path=tmp_path / "active_params.yaml",
+        promote_gate=promo,
     )
     assert path is not None
     payload = load_active_params(path)
