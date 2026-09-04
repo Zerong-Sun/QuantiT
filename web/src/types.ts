@@ -198,3 +198,43 @@ export interface PortfolioOverview {
   books: PortfolioBook[];
   positions: PortfolioPosition[];
 }
+
+export interface CloseloopStatus {
+  running: boolean;
+  source: string;
+  last_alpha: string | null;
+  last_tick: string | null;
+  last_error: string | null;
+  n_library: number;
+  interval_sec: number;
+  can_trade: boolean;
+  ic_mean: number | null;
+  ic_ir: number | null;
+  passed: boolean | null;
+  reasons: string[];
+  target: { weights: Record<string, number>; alpha_id: string; rationale: string } | null;
+  cl_cash: number | null;
+  cl_equity?: number | null;
+  cl_currency?: string;
+  has_dump?: boolean;
+  fills?: { symbol: string; side: string; status: string; qty: number }[];
+}
+
+export interface CloseloopLibraryRow {
+  alpha_id: string;
+  name?: string;
+  passed?: boolean;
+  ic_mean?: number | null;
+  ic_ir?: number | null;
+  quantile_spread?: number | null;
+  turnover?: number | null;
+  universe?: string;
+}
+
+export interface CloseloopTraceRow {
+  alpha_id?: string;
+  passed?: boolean;
+  ic_mean?: number | null;
+  ic_ir?: number | null;
+  reasons?: string[];
+}

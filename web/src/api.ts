@@ -12,6 +12,9 @@ import type {
   Trade,
   Runner,
   PortfolioOverview,
+  CloseloopStatus,
+  CloseloopLibraryRow,
+  CloseloopTraceRow,
 } from "./types";
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -118,5 +121,24 @@ export const api = {
     const res = await fetch("/api/v1/runner/tick", { method: "POST" });
     if (!res.ok) throw new Error(await res.text());
     return res.json() as Promise<Runner>;
+  },
+  closeloopStatus: () => getJson<CloseloopStatus>("/api/v1/closeloop/status"),
+  closeloopLibrary: () => getJson<CloseloopLibraryRow[]>("/api/v1/closeloop/library"),
+  closeloopTrace: (limit = 50) =>
+    getJson<CloseloopTraceRow[]>(`/api/v1/closeloop/trace?limit=${encodeURIComponent(String(limit))}`),
+  closeloopStart: async () => {
+    const res = await fetch("/api/v1/closeloop/start", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<CloseloopStatus>;
+  },
+  closeloopStop: async () => {
+    const res = await fetch("/api/v1/closeloop/stop", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<CloseloopStatus>;
+  },
+  closeloopStep: async () => {
+    const res = await fetch("/api/v1/closeloop/step", { method: "POST" });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json() as Promise<CloseloopStatus>;
   },
 };

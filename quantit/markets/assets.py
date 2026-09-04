@@ -10,6 +10,7 @@ ALLOWED_ASSET_CLASSES: dict[str, frozenset[str]] = {
     "us": frozenset({"equity", "etf", "option"}),
     "hk": frozenset({"equity", "etf", "warrant"}),
     "cn": frozenset({"equity", "etf"}),
+    "cl": frozenset({"equity"}),
 }
 
 # Yahoo OCC-style listed options: AAPL250117C00150000
@@ -78,6 +79,8 @@ def asset_class(market_id: str, symbol: str) -> str:
         code = sym.split(".")[0].zfill(6)
         if code.startswith(_CN_ETF_PREFIXES):
             return "etf"
+        return "equity"
+    if market_id == "cl":
         return "equity"
     return "equity"
 

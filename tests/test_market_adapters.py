@@ -10,7 +10,8 @@ import pytest
 from quantit.data.provider import DataProvider
 from quantit.markets.cn import CN_PROFILE, CNAdapter
 from quantit.markets.hk import HK_PROFILE, HKAdapter
-from quantit.markets.registry import MarketRegistry, get_registry
+from quantit.markets.cl import CLAdapter, normalize_cl_symbol
+from quantit.markets.registry import MarketRegistry, get_registry, reset_registry
 from quantit.markets.us import US_PROFILE, USAdapter
 
 
@@ -171,11 +172,50 @@ class TestRegistry:
         with pytest.raises(KeyError):
             registry.get("jp")
 
-    def test_default_registry_has_three_markets(self) -> None:
+    def test_default_registry_has_four_markets(self) -> None:
+        reset_registry()
         registry = get_registry()
-        assert set(registry.ids()) == {"us", "hk", "cn"}
+        assert set(registry.ids()) == {"us", "hk", "cn", "cl"}
         assert registry.get("hk").profile is HK_PROFILE
         assert registry.get("cn").profile is CN_PROFILE
+        assert registry.get("cl").market_id == "cl"
+
+
+class TestCLAdapter:
+    def test_normalize_csi300_codes(self) -> None:
+        assert normalize_cl_symbol("600000") == "SH600000"
+        assert normalize_cl_symbol("000001.SZ") == "SZ000001"
+        assert normalize_cl_symbol("sh600000") == "SH600000"
+
+    def test_quote_from_dump_parquet(self, tmp_path) -> None:
+        dates = pd.bdate_range("2024-01-02", periods=4)
+        close = pd.DataFrame({"SH600000": [10.0, 10.5, 11.0, 11.5]}, index=dates)
+        fields = {}
+        for name, series in (
+            ("open", close),
+            ("high", close + 0.2),
+            ("low", close - 0.2),
+            ("close", close),
+            ("volume", close * 0 + 1_000_000),
+        ):
+            col = series.copy()
+            col.columns = pd.MultiIndex.from_product([[name], col.columns], names=["field", "instrument"])
+            fields[name] = col
+        panel = pd.concat(list(fields.values()), axis=1).sort_index(axis=1)
+        panel.index = pd.DatetimeIndex(panel.index, name="datetime")
+        dest = tmp_path / "qlib_cn"
+        dest.mkdir()
+        panel.to_parquet(dest / "panel.parquet")
+        adapter = CLAdapter(data_dir=dest)
+        quote = adapter.fetch_quote("600000")
+        assert quote.symbol == "SH600000"
+        assert quote.last == pytest.approx(11.5)
+        assert adapter.lot_size("SH600000") == 100
+
+    def test_missing_dump_rejects(self, tmp_path) -> None:
+        adapter = CLAdapter(data_dir=tmp_path / "empty")
+        with pytest.raises(ValueError, match="no closeloop dump"):
+            adapter.fetch_quote("SH600000")
 
 
 class TestHKStructuredBars:

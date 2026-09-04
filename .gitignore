@@ -26,3 +26,7 @@ examples/cn_etf_rotation_report.html
 materials/etf_history_clean.csv
 web/node_modules/
 web/dist/
+closeloop/artifacts/library/*.json
+closeloop/artifacts/library/REPORT.md
+closeloop/artifacts/trace.jsonl
+closeloop/artifacts/outbox/*.json

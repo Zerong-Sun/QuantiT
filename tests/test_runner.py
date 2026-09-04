@@ -103,6 +103,19 @@ class TestSeedCash:
         assert cash["hk"] == PAPER_CASH["hk"]
         assert cash["cn"] == PAPER_CASH["cn"]
 
+    def test_cl_seed_on_isolated_registry(self) -> None:
+        from quantit.markets.cl import CLAdapter
+
+        registry = _registry()
+        registry.register(CLAdapter(provider=FakeProvider({"SH600000": _ohlcv(start_price=10.0)})))
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        cl = broker.get_account("cl")
+        assert cl.currency == "CNY"
+        assert cl.cash == PAPER_CASH["cl"]
+        assert cl.initial_cash == PAPER_CASH["cl"]
+
     def test_seed_increase_tops_up_open_book(self) -> None:
         session = create_session("sqlite:///:memory:")
         broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
@@ -215,6 +228,28 @@ class TestRunner:
         opt = broker.get_position("us", "AAPL250117C00150000")
         assert opt is not None and opt.quantity >= 1
 
+    def test_tick_never_books_cl(self) -> None:
+        from quantit.markets.cl import CLAdapter
+
+        frames = {
+            "AAPL": _ohlcv(start_price=150.0, step=-1.0),
+            "0700.HK": _ohlcv(start_price=300.0),
+            "600519.SS": _ohlcv(start_price=10.0, step=0.05),
+            "SH600000": _ohlcv(start_price=10.0, step=0.05),
+        }
+        registry = _registry(frames)
+        registry.register(CLAdapter(provider=FakeProvider(frames)))
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        cl_cash = broker.get_account("cl").cash
+        runner = PaperRunner(broker, us_watch=("AAPL",), hk_scores=None)
+        runner.tick(markets=("cl", "us"))
+        assert broker.get_account("cl").cash == pytest.approx(cl_cash)
+        assert all(o.market_id != "cl" for o in broker.list_orders())
+        runner.tick()
+        assert all(o.market_id != "cl" for o in broker.list_orders())
+
     def test_buys_hk_warrant_on_oversold(self) -> None:
         frames = {
             "AAPL": _ohlcv(start_price=150.0, step=-1.0),
@@ -232,7 +267,7 @@ class TestRunner:
         buys = [a for a in first if a["side"] == "buy" and a["status"] == "filled"]
         assert any(a["symbol"] == "14993.HK" for a in buys)
 
-    def test_hk_rotation_force_skips_month_end(self) -> None:
+    def test_hk_rotation_rebalances_mid_month_once(self) -> None:
         n = 130
         frames = {
             "AAPL": _ohlcv(n=n, start_price=150.0),
@@ -264,14 +299,14 @@ class TestRunner:
             hk_warrants=(),
             hk_scores=scores,
         )
+        first = runner.tick(markets=("hk",), force=False)
+        filled = [a for a in first if a["status"] == "filled" and a["market_id"] == "hk"]
+        assert filled
+        assert broker.get_position("hk", "0700.HK") is not None
         skipped = runner.tick(markets=("hk",), force=False)
         assert skipped == []
-        assert broker.get_position("hk", "0700.HK") is None
         forced = runner.tick(markets=("hk",), force=True)
-        filled = [a for a in forced if a["status"] == "filled" and a["market_id"] == "hk"]
-        assert filled
-        assert any("manual" in (a.get("rationale") or "") for a in filled)
-        assert broker.get_position("hk", "0700.HK") is not None
+        assert all(a.get("market_id") != "hk" or "manual" in (a.get("rationale") or "") for a in forced)
 
     def test_tsmom_primary_buys_uptrend(self) -> None:
         from quantit.research.params import write_active_params
@@ -473,6 +508,38 @@ class TestRunner:
         bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
         assert bought & set(CN_QUALITY)
         assert "510300.SS" not in bought
+
+    def test_us_quality_watchlist_buys_quality_not_nasdaq(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import US_QUALITY
+
+        write_active_params(
+            {
+                "us_primary": "tsmom",
+                "strategies": {
+                    "tsmom": {"lookback": 40, "skip": 5, "target_vol": 0.15, "risk_off_scale": 0.5}
+                },
+            }
+        )
+        n = 80
+        frames = {
+            "AAPL": _ohlcv(n=n, start_price=150.0, step=0.8),
+            "MSFT": _ohlcv(n=n, start_price=400.0, step=1.0),
+            "0700.HK": _ohlcv(n=n, start_price=300.0),
+        }
+        for sym in US_QUALITY:
+            frames[sym] = _ohlcv(n=n, start_price=80.0, step=0.3)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=US_QUALITY, hk_warrants=(), hk_scores=None)
+        filled = runner.tick(markets=("us",), force=True)
+        bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
+        assert bought & set(US_QUALITY)
+        assert "AAPL" not in bought
+        assert "MSFT" not in bought
 
 
 class TestDerivativesPick:

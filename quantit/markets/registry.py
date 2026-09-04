@@ -8,7 +8,7 @@ _default: MarketRegistry | None = None
 
 
 class MarketRegistry:
-    """Lookup table keyed by ``market_id`` (``us`` / ``hk`` / ``cn``)."""
+    """Lookup table keyed by ``market_id`` (``us`` / ``hk`` / ``cn`` / ``cl``)."""
 
     def __init__(self) -> None:
         self._adapters: dict[str, MarketAdapter] = {}
@@ -30,7 +30,8 @@ class MarketRegistry:
 
 
 def default_registry() -> MarketRegistry:
-    """Build a registry with the three first-party adapters."""
+    """Build a registry with US/HK/CN paper venues plus the isolated ``cl`` book."""
+    from quantit.markets.cl import CLAdapter
     from quantit.markets.cn import CNAdapter
     from quantit.markets.hk import HKAdapter
     from quantit.markets.us import USAdapter
@@ -39,6 +40,7 @@ def default_registry() -> MarketRegistry:
     registry.register(USAdapter())
     registry.register(HKAdapter())
     registry.register(CNAdapter())
+    registry.register(CLAdapter())
     return registry
 
 

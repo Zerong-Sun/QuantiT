@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from quantit.api.closeloop_bridge import LoopWorker, attach_closeloop_routes, make_worker
 from quantit.api.frontend import mount_frontend
 from quantit.api.schemas import (
     AccountOut,
@@ -69,6 +70,7 @@ def create_app(
     registry: MarketRegistry | None = None,
     notebook: NoteBook | None = None,
     runner: PaperRunner | None = None,
+    closeloop_worker: LoopWorker | None = None,
 ) -> FastAPI:
     owned = broker is None
     registry = registry or get_registry()
@@ -78,18 +80,33 @@ def create_app(
     notebook = notebook or NoteBook(session_on(broker.session.get_bind()), now=broker.now)
     if runner is None:
         runner = PaperRunner(broker)
+        # Daily signals only change at a session close: throttle live re-evaluations
+        # so free quote sources (Yahoo 429, Eastmoney IP bans) are not hammered by a
+        # 60-second tick loop. QUANTIT_RUNNER_EVAL_SEC=0 re-enables per-tick eval.
+        raw = os.environ.get("QUANTIT_RUNNER_EVAL_SEC", "1800")
+        try:
+            runner.eval_interval_sec = float(raw)
+        except ValueError:
+            runner.eval_interval_sec = 1800.0
         if owned:
             runner.hk_score_loader = load_hk_theme_scores
             runner.cn_score_loader = load_cn_theme_scores
             runner.us_option_picker = yahoo_atm_call
 
+    if closeloop_worker is None:
+        closeloop_worker = make_worker() if owned else LoopWorker(force_fixture=True)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         autostart = owned and os.environ.get("QUANTIT_RUNNER", "1") != "0"
+        autostart_cl = owned and os.environ.get("QUANTIT_CLOSELOOP", "1") != "0"
         if autostart:
             runner.start_background()
+        if autostart_cl:
+            closeloop_worker.start_background()
         yield
         runner.stop()
+        closeloop_worker.stop()
 
     app = FastAPI(title="QuantiT Paper Terminal", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -102,6 +119,8 @@ def create_app(
     app.state.registry = registry
     app.state.notebook = notebook
     app.state.runner = runner
+    app.state.closeloop_worker = closeloop_worker
+    attach_closeloop_routes(app, broker, closeloop_worker)
 
     def _adapter(market_id: str):
         try:

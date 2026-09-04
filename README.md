@@ -10,7 +10,7 @@ A research-oriented quantitative trading platform for US equities, Hong Kong lon
 - **Strategies**: Time-series momentum with volatility targeting (US research default); MA/RSI `us_book` as a paper baseline; HK monthly theme rotation; CN industry ETF monthly rotation
 - **Research**: Walk-forward grid search (`quantit research`); OOS Sharpe vs buy-and-hold; promote tsmom params to `~/.quantit/research/active_params.yaml`
 - **Backtest**: Bar-by-bar simulation; single-name signals fill on the next bar's open by default
-- **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, three currency sub-accounts (US $100k stocks/ETFs/options, HK $1m stocks/ETFs/warrants, CN ¥1m stocks and ETFs), A-share T+1 and board lots
+- **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, four currency sub-accounts (US $100k stocks/ETFs/options, HK $1m stocks/ETFs/warrants, CN ¥1m stocks and ETFs, plus an isolated **CL ¥1m** CSI300 research book). A-share T+1 and board lots. Top-bar **Research** (`/research`) runs Closeloop (Alpha101 + gates) without mixing into US/HK/CN.
 - **Analysis**: Performance metrics, Plotly charts, HTML reports
 - **News / policy**: Finnhub REST polling for headlines. Headlines **do not** trade. `quantit brief` filters policy/geopolitics events into a markdown pack (plus Yahoo international macros). Optional `--llm` writes a YAML calendar proposal; it is **not** auto-merged and the paper runner does not read it.
 
@@ -53,7 +53,7 @@ quantit serve --host 127.0.0.1 --port 8000
 
 Then open **http://127.0.0.1:8000/** (`quantit serve` opens it by default). Quotes refresh about every 15 seconds. Paper fills use the last delayed bar plus venue slippage/commission. A-shares require `akshare` (included in the `paper` extra).
 
-Idle paper books are seeded at **USD 100,000** (equities, ETFs, listed options), **HKD 1,000,000** (equities, ETFs, warrants/CBBCs), and **CNY 1,000,000** (A-share equities and ETFs). The runner auto-executes the US book (MA/RSI, or TSMOM after a successful `--promote`) on a daily watchlist, HK Hang Seng TECH theme rotation at month-end, and CN industry ETF rotation at month-end. Options and warrants can be entered as manual orders. Set `QUANTIT_RUNNER=0` to disable the background runner.
+Idle paper books are seeded at **USD 100,000** (equities, ETFs, listed options), **HKD 1,000,000** (equities, ETFs, warrants/CBBCs), and **CNY 1,000,000** (A-share equities and ETFs). The runner auto-executes the US book (MA/RSI, or TSMOM after a successful `--promote`) on a daily watchlist, HK Hang Seng TECH theme rotation each session, and CN industry ETF rotation each session (all at most once per calendar day; turnover bands skip tiny size changes). Options and warrants can be entered as manual orders. Closeloop uses a separate **CL CNY 1,000,000** book (`market_id=cl`) that the paper runner never ticks. Open **http://127.0.0.1:8000/research** for the research loop. Set `QUANTIT_RUNNER=0` to pause the US/HK/CN runner; `QUANTIT_CLOSELOOP=0` to pause Closeloop. Without a CSI300 dump the worker uses a fixture panel and does not place `cl` orders.
 
 Review of whether those live rules are reasonable, tradable at this size, and what to expect next: [`knowledge_base/11_paper/strategy_review.md`](knowledge_base/11_paper/strategy_review.md).
 

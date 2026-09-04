@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from quantit.markets.assets import ALLOWED_ASSET_CLASSES
+from quantit.research.universes import US_QUALITY
 
 # Idle accounts are seeded (or rebased) to these notionals.
 PAPER_CASH: dict[str, float] = {
     "us": 100_000.0,
     "hk": 1_000_000.0,
     "cn": 1_000_000.0,
+    "cl": 1_000_000.0,
 }
 
-US_WATCHLIST: tuple[str, ...] = ("AAPL", "MSFT", "NVDA", "SPY", "QQQ")
+# Paper US book follows the research quality pool (not the Nasdaq contrast list).
+US_WATCHLIST: tuple[str, ...] = US_QUALITY
 HK_ETF_WATCHLIST: tuple[str, ...] = ("2800.HK", "2828.HK", "3033.HK", "3067.HK")
 # 5-digit 认购证；东财日线（Yahoo 通常无五位轮证）。偏恒生科技/恒指多头，且需有约一个月行情才能跑 MA/RSI。
 HK_WARRANT_WATCHLIST: tuple[str, ...] = (

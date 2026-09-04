@@ -60,6 +60,10 @@ def mount_frontend(app: FastAPI) -> None:
         def ui_portfolio_fallback() -> HTMLResponse:
             return HTMLResponse(_FALLBACK)
 
+        @app.get("/research", include_in_schema=False)
+        def ui_research_fallback() -> HTMLResponse:
+            return HTMLResponse(_FALLBACK)
+
         return
 
     assets = dist / "assets"
@@ -72,4 +76,8 @@ def mount_frontend(app: FastAPI) -> None:
 
     @app.get("/portfolio", include_in_schema=False)
     def ui_portfolio() -> FileResponse:
+        return FileResponse(dist / "index.html")
+
+    @app.get("/research", include_in_schema=False)
+    def ui_research() -> FileResponse:
         return FileResponse(dist / "index.html")

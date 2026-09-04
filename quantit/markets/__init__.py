@@ -1,5 +1,6 @@
 from quantit.markets.adapter import MarketAdapter, QuoteFeed
 from quantit.markets.base import MarketProfile
+from quantit.markets.cl import CL_PROFILE, CLAdapter
 from quantit.markets.cn import (
     CN_ETF_FALLBACK,
     CN_ETF_THEMES,
@@ -36,6 +37,8 @@ __all__ = [
     "THEME_NAMES",
     "all_hstech_symbols",
     "theme_of",
+    "CL_PROFILE",
+    "CLAdapter",
     "CN_PROFILE",
     "CNAdapter",
     "CN_ETF_THEMES",

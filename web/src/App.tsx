@@ -2,11 +2,12 @@ import { useEffect, useState, type FormEvent } from "react";
 import { api } from "./api";
 import { KLineChart } from "./components/KLineChart";
 import { NotesBoard } from "./components/NotesBoard";
+import { CloseloopPage } from "./components/CloseloopPage";
 import { PortfolioPage } from "./components/PortfolioPage";
 import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
 import { ResizableCard } from "./components/ResizableCard";
 import { StrategyDesk } from "./components/StrategyDesk";
-import { DEFAULT_SYMBOL, marketUi } from "./markets/config";
+import { DEFAULT_SYMBOL, DESK_MARKET_IDS, marketUi } from "./markets/config";
 import type {
   Account,
   Bar,
@@ -24,10 +25,13 @@ import type {
 
 const POLL_MS = 15_000;
 type DeskTab = "blotter" | "strategies" | "notes";
-type Page = "desk" | "portfolio";
+type Page = "desk" | "portfolio" | "research";
 
 function readPage(): Page {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path.endsWith("/research") || window.location.hash === "#/research") {
+    return "research";
+  }
   if (path.endsWith("/portfolio") || window.location.hash === "#/portfolio") {
     return "portfolio";
   }
@@ -152,7 +156,7 @@ export function App() {
   }
 
   function goPage(next: Page) {
-    const url = next === "portfolio" ? "/portfolio" : "/";
+    const url = next === "portfolio" ? "/portfolio" : next === "research" ? "/research" : "/";
     window.history.pushState({ page: next }, "", url);
     setPage(next);
   }
@@ -170,7 +174,8 @@ export function App() {
   useEffect(() => {
     api.markets().then((list) => {
       setMarkets(list);
-      const first = list[0]?.id ?? "us";
+      const desk = list.filter((m) => (DESK_MARKET_IDS as readonly string[]).includes(m.id));
+      const first = desk[0]?.id ?? "us";
       setMarket(first);
       const sym = DEFAULT_SYMBOL[first] ?? "AAPL";
       setSymbol(sym);
@@ -256,11 +261,12 @@ export function App() {
         <div className="pages">
           <button className={page === "desk" ? "active" : ""} onClick={() => goPage("desk")}>Desk</button>
           <button className={page === "portfolio" ? "active" : ""} onClick={() => goPage("portfolio")}>Portfolio</button>
+          <button className={page === "research" ? "active" : ""} onClick={() => goPage("research")}>Research</button>
         </div>
         {page === "desk" ? (
           <>
             <div className="markets">
-              {markets.map((m) => (
+              {markets.filter((m) => (DESK_MARKET_IDS as readonly string[]).includes(m.id)).map((m) => (
                 <button
                   key={m.id}
                   className={m.id === market ? "active" : ""}
@@ -278,12 +284,15 @@ export function App() {
             </form>
           </>
         ) : null}
+        {page === "desk" ? (
         <div className="session">
           {currentMarket ? `${currentMarket.session_hours} · delayed` : "delayed quotes"}
           {currentMarket?.allowed_asset_classes?.length ? ` · ${currentMarket.allowed_asset_classes.join("/")}` : ""}
         </div>
+        ) : null}
       </header>
       {page === "portfolio" ? <PortfolioPage /> : null}
+      {page === "research" ? <CloseloopPage /> : null}
       {page === "desk" && runner ? (
         <div className="runner-bar">
           <span className={runner.running ? "live" : "off"}>{runner.running ? "LIVE" : "PAUSED"}</span>
@@ -418,9 +427,9 @@ export function App() {
                   <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
                 </thead>
                 <tbody>
-                  {positions.length === 0 ? (
+                  {positions.filter((p) => p.market_id !== "cl").length === 0 ? (
                     <tr><td colSpan={4}>No positions</td></tr>
-                  ) : positions.map((p) => (
+                  ) : positions.filter((p) => p.market_id !== "cl").map((p) => (
                     <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
                       <td>{p.market_id}</td>
                       <td>{p.symbol}</td>
@@ -437,9 +446,9 @@ export function App() {
                   <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
                 </thead>
                 <tbody>
-                  {trades.length === 0 ? (
+                  {trades.filter((t) => t.market_id !== "cl").length === 0 ? (
                     <tr><td colSpan={5}>No trades</td></tr>
-                  ) : trades.map((t) => (
+                  ) : trades.filter((t) => t.market_id !== "cl").map((t) => (
                     <tr key={t.id}>
                       <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
                       <td>{t.symbol}</td>
@@ -457,9 +466,9 @@ export function App() {
                   <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 ? (
+                  {orders.filter((o) => o.market_id !== "cl").length === 0 ? (
                     <tr><td colSpan={5}>No orders</td></tr>
-                  ) : orders.map((o) => (
+                  ) : orders.filter((o) => o.market_id !== "cl").map((o) => (
                     <tr key={o.id} onClick={() => setSelectedOrder(o)}>
                       <td>{o.id}</td>
                       <td>{o.symbol}</td>

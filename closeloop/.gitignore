@@ -1,0 +1,7 @@
+# Runtime dumps and RD-Agent IO. Example YAML is tracked.
+artifacts/inbox/*.yaml
+!artifacts/inbox/example.yaml
+artifacts/outbox/*
+!artifacts/outbox/.gitkeep
+artifacts/trace.jsonl
+artifacts/library/*

@@ -132,3 +132,8 @@ class TestTradingRoutes:
         assert resp.status_code == 200
         assert "text/html" in resp.headers.get("content-type", "")
         assert b"QuantiT" in resp.content
+
+    def test_research_route_serves_html(self, client: TestClient) -> None:
+        resp = client.get("/research")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
