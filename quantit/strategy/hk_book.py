@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import math
+
 import pandas as pd
 
 from quantit.research.universes import HK_QUALITY
 from quantit.strategy.base import Context, Strategy
-from quantit.strategy.regime import is_month_end
 from quantit.strategy.tsmom import tsmom_momentum
 
 
@@ -45,11 +46,122 @@ def invested_fraction(
     return float(risk_off_scale)
 
 
+def vol_scale(
+    realized: float | None,
+    target_vol: float,
+    vol_floor: float = 0.05,
+) -> float:
+    """Shrink the momentum sleeve when realized vol exceeds ``target_vol``.
+
+    Never levers above 1. Unknown/non-finite realized vol leaves the sleeve
+    unchanged so a cold start does not go to cash. ``+inf`` realized vol is
+    treated as extremely hot and shrinks to zero.
+    """
+    try:
+        target = float(target_vol)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(target) or target <= 0:
+        return 1.0
+    try:
+        floor = float(vol_floor)
+    except (TypeError, ValueError):
+        floor = 0.05
+    if not math.isfinite(floor) or floor <= 0:
+        floor = 0.05
+    if realized is None:
+        return 1.0
+    try:
+        realized_f = float(realized)
+    except (TypeError, ValueError):
+        return 1.0
+    if math.isnan(realized_f):
+        return 1.0
+    if realized_f == math.inf:
+        return 0.0
+    if not math.isfinite(realized_f) or realized_f < 0:
+        return 1.0
+    denom = max(realized_f, floor, 1e-8)
+    return min(1.0, target / denom)
+
+
+def sleeve_fraction(
+    momentum: float | None,
+    realized: float | None,
+    *,
+    invested_on: float,
+    risk_off_scale: float,
+    target_vol: float,
+    vol_floor: float = 0.05,
+) -> float:
+    """Momentum sleeve × vol scale (shared by backtest and paper)."""
+    return invested_fraction(
+        momentum, invested_on=invested_on, risk_off_scale=risk_off_scale
+    ) * vol_scale(realized, target_vol, vol_floor)
+
+
+def basket_vol_series(ohlcv: dict[str, pd.DataFrame], period: int) -> pd.Series:
+    """Annualized rolling vol of the equal-weight close index."""
+    index = equal_weight_index(ohlcv)
+    if index.empty or period <= 0:
+        return pd.Series(dtype=float)
+    return index.pct_change().rolling(int(period)).std() * math.sqrt(252)
+
+
+def basket_realized_vol(
+    ohlcv: dict[str, pd.DataFrame],
+    period: int,
+    asof: pd.Timestamp | None = None,
+) -> float | None:
+    series = basket_vol_series(ohlcv, period)
+    if series.empty:
+        return None
+    hit = series.iloc[-1] if asof is None else series.asof(pd.Timestamp(asof))
+    if hit is None or pd.isna(hit):
+        return None
+    value = float(hit)
+    if not math.isfinite(value):
+        return None
+    return value
+
+
+def quality_sleeve(
+    ohlcv: dict[str, pd.DataFrame],
+    *,
+    lookback: int,
+    skip: int,
+    invested_on: float,
+    risk_off_scale: float,
+    target_vol: float,
+    vol_lookback: int,
+    vol_floor: float,
+    asof: pd.Timestamp,
+) -> tuple[float, float | None]:
+    """Momentum sleeve × vol scale as of ``asof``. Returns ``(frac, momentum)``."""
+    mom = basket_momentum(ohlcv, lookback, skip)
+    mom_val: float | None = None
+    if not mom.empty:
+        hit = mom.asof(pd.Timestamp(asof))
+        if hit is not None and not pd.isna(hit):
+            mom_val = float(hit)
+    realized = basket_realized_vol(ohlcv, vol_lookback, asof)
+    return sleeve_fraction(
+        mom_val,
+        realized,
+        invested_on=invested_on,
+        risk_off_scale=risk_off_scale,
+        target_vol=target_vol,
+        vol_floor=vol_floor,
+    ), mom_val
+
+
 class HKQualityBookStrategy(Strategy):
     """Equal-weight HK operating blue chips; one skipped-lookback momentum signal.
 
-    Rebalances on the last session of each month. Residual weight stays cash
-    (no Hang Seng TECH ETF fallback). No shorting.
+    Rebalances each session. Residual weight stays cash (no Hang Seng TECH ETF
+    fallback). ``turnover_band`` skips names whose quantity change is too small
+    to bother. Realized basket vol can only shrink the sleeve (no leverage).
+    No shorting.
     """
 
     def __init__(
@@ -59,6 +171,9 @@ class HKQualityBookStrategy(Strategy):
         risk_off_scale: float = 0.5,
         invested_on: float = 0.95,
         turnover_band: float = 0.02,
+        target_vol: float = 0.15,
+        vol_lookback: int = 20,
+        vol_floor: float = 0.05,
         universe: tuple[str, ...] | None = None,
     ) -> None:
         if lookback <= 0:
@@ -71,43 +186,55 @@ class HKQualityBookStrategy(Strategy):
             raise ValueError("risk_off_scale must be in [0, 1]")
         if invested_on <= 0 or invested_on > 1:
             raise ValueError("invested_on must be in (0, 1]")
+        if target_vol <= 0:
+            raise ValueError("target_vol must be positive")
+        if vol_lookback <= 0:
+            raise ValueError("vol_lookback must be positive")
+        if vol_floor <= 0:
+            raise ValueError("vol_floor must be positive")
         self.lookback = lookback
         self.skip = skip
         self.risk_off_scale = float(risk_off_scale)
         self.invested_on = float(invested_on)
         self.turnover_band = turnover_band
+        self.target_vol = float(target_vol)
+        self.vol_lookback = int(vol_lookback)
+        self.vol_floor = float(vol_floor)
         self.universe = tuple(universe) if universe is not None else HK_QUALITY
         self._mom: pd.Series | None = None
-        self._dates: pd.DatetimeIndex | None = None
+        self._vol: pd.Series | None = None
 
     def on_start(self, context: Context) -> None:
         frames = context.data_map or {context.symbol: context.data}
         self._mom = basket_momentum(frames, self.lookback, self.skip)
-        calendar = None
-        for df in frames.values():
-            if df is None or getattr(df, "empty", True):
-                continue
-            calendar = df.index if calendar is None else calendar.union(df.index)
-        self._dates = pd.DatetimeIndex(calendar).sort_values().normalize() if calendar is not None else None
+        self._vol = basket_vol_series(frames, self.vol_lookback)
         if self._mom is not None and not self._mom.empty:
             context.indicators["hk_basket_tsmom"] = self._mom
+        if self._vol is not None and not self._vol.empty:
+            context.indicators["hk_basket_vol"] = self._vol
 
     def on_bar(self, context: Context, bar: pd.Series) -> None:
-        if context.current_date is None or self._dates is None or self._mom is None or self._mom.empty:
+        if context.current_date is None or self._mom is None or self._mom.empty:
             return
         ts = pd.Timestamp(context.current_date)
-        if not is_month_end(self._dates, ts):
-            return
         need = self.lookback + 1
         if len(self._mom.loc[:ts]) < need:
             return
         asof = self._mom.asof(ts)
         if asof is None or (isinstance(asof, float) and pd.isna(asof)):
             return
-        frac = invested_fraction(
+        realized: float | None = None
+        if self._vol is not None and not self._vol.empty:
+            vol_hit = self._vol.asof(ts)
+            if vol_hit is not None and not pd.isna(vol_hit):
+                realized = float(vol_hit)
+        frac = sleeve_fraction(
             float(asof),
+            realized,
             invested_on=self.invested_on,
             risk_off_scale=self.risk_off_scale,
+            target_vol=self.target_vol,
+            vol_floor=self.vol_floor,
         )
         quoted = [
             s

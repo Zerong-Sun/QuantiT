@@ -8,6 +8,7 @@ import math
 
 import pandas as pd
 
+from quantit.paper.capital import PAPER_CASH
 from quantit.research.gates import GateResult, evaluate_gates, evaluate_promote_gates, fold_regime
 from quantit.research.search import (
     _is_empty,
@@ -23,6 +24,7 @@ __all__ = [
     "FoldResult",
     "StudyResult",
     "calendar_index",
+    "default_research_cash",
     "iter_folds",
     "walk_forward",
 ]
@@ -77,6 +79,15 @@ def _mean(values: list[float]) -> float:
     return float(sum(finite) / len(finite))
 
 
+def default_research_cash(strategy_id: str) -> float:
+    """Match paper seed cash so walk-forward PnL is not a 10× HK/CN toy book."""
+    if strategy_id in {"hk_quality_book", "theme_rotation"}:
+        return float(PAPER_CASH["hk"])
+    if strategy_id in {"cn_quality_book", "cn_etf_rotation"}:
+        return float(PAPER_CASH["cn"])
+    return float(PAPER_CASH["us"])
+
+
 def walk_forward(
     strategy_id: str,
     data: pd.DataFrame | dict[str, pd.DataFrame],
@@ -85,9 +96,11 @@ def walk_forward(
     test: int = 126,
     step: int = 126,
     grid: list[dict[str, Any]] | None = None,
-    initial_cash: float = 100_000.0,
+    initial_cash: float | None = None,
     extra: dict[str, Any] | None = None,
 ) -> StudyResult:
+    if initial_cash is None:
+        initial_cash = default_research_cash(strategy_id)
     get_spec(strategy_id)
     cal = calendar_index(data)
     n = len(cal)

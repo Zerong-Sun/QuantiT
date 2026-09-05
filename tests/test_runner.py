@@ -154,6 +154,20 @@ class TestAllowedOrders:
         assert order.status == "filled"
 
 
+class TestQualityCfgCoercion:
+    def test_paper_helpers_reject_invalid_numbers(self) -> None:
+        from quantit.paper.runner import _non_negative_int, _positive_int, _unit_interval
+
+        assert _positive_int(None, 20) == 20
+        assert _positive_int(0, 20) == 20
+        assert _positive_int("7", 20) == 7
+        assert _non_negative_int(-1, 21) == 21
+        assert _non_negative_int(0, 21) == 0
+        assert _unit_interval(0.0, 0.5) == 0.0
+        assert _unit_interval(1.5, 0.5) == 0.5
+        assert _unit_interval(float("nan"), 0.5) == 0.5
+
+
 class TestRunner:
     def test_buys_oversold_us_name_once_per_day(self) -> None:
         session = create_session("sqlite:///:memory:")
@@ -540,6 +554,60 @@ class TestRunner:
         assert bought & set(US_QUALITY)
         assert "AAPL" not in bought
         assert "MSFT" not in bought
+
+    def test_quality_book_skips_buys_when_drawdown_breached(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import CN_QUALITY, HK_QUALITY, US_QUALITY
+
+        cases = (
+            ("hk", "hk_primary", "hk_quality_book", HK_QUALITY, ()),
+            ("cn", "cn_primary", "cn_quality_book", CN_QUALITY, ()),
+            ("us", "us_primary", "tsmom", US_QUALITY, US_QUALITY),
+        )
+        n = 80
+        for market_id, primary_key, strategy_id, universe, us_watch in cases:
+            write_active_params(
+                {
+                    primary_key: strategy_id if market_id != "us" else "tsmom",
+                    "strategies": {
+                        strategy_id: {
+                            "lookback": 40,
+                            "skip": 5,
+                            "risk_off_scale": 0.5,
+                            "invested_on": 0.95,
+                        }
+                    },
+                }
+            )
+            frames = {
+                "AAPL": _ohlcv(n=n, start_price=150.0),
+                "0700.HK": _ohlcv(n=n, start_price=300.0),
+                "600519.SS": _ohlcv(n=n, start_price=10.0, step=0.05),
+            }
+            start_price = 80.0 if market_id == "us" else (10.0 if market_id == "cn" else 50.0)
+            step = 0.3 if market_id == "us" else (0.05 if market_id == "cn" else 0.4)
+            for sym in universe:
+                frames[sym] = _ohlcv(n=n, start_price=start_price, step=step)
+            session = create_session("sqlite:///:memory:")
+            broker = PaperBroker(
+                session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+            )
+            broker.ensure_accounts()
+            held = universe[0]
+            last = float(frames[held]["close"].iloc[-1])
+            account = broker.get_account(market_id)
+            lot = broker.registry.get(market_id).lot_size(held) or 1
+            qty = int(account.cash * 0.90 / last)
+            qty = (qty // lot) * lot
+            assert qty > 0, market_id
+            broker.place_order(market_id, held, "buy", qty)
+            frames[held].iloc[-1, frames[held].columns.get_loc("close")] = last * 0.10
+            runner = PaperRunner(
+                broker, us_watch=us_watch, hk_warrants=(), hk_scores=None
+            )
+            filled = runner.tick(markets=(market_id,), force=True)
+            bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
+            assert not bought, market_id
 
 
 class TestDerivativesPick:

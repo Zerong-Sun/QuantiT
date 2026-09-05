@@ -164,3 +164,11 @@ def test_walk_forward_synthetic_basket() -> None:
 def test_universe_tuple_is_quality_book() -> None:
     assert "510300.SS" not in CN_QUALITY
     assert "600519.SS" in CN_QUALITY
+
+
+def test_walk_forward_defaults_cn_cash_to_paper_size() -> None:
+    from quantit.paper.capital import PAPER_CASH
+    from quantit.research.walk_forward import default_research_cash
+
+    assert default_research_cash("cn_quality_book") == PAPER_CASH["cn"]
+    assert default_research_cash("cn_etf_rotation") == PAPER_CASH["cn"]

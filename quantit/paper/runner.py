@@ -27,7 +27,7 @@ from quantit.paper.capital import (
 from quantit.research.params import strategy_params, us_primary, hk_primary, cn_primary
 from quantit.research.universes import HK_QUALITY, CN_QUALITY, US_QUALITY
 from quantit.strategy.cn_book import CNQualityBookStrategy
-from quantit.strategy.hk_book import HKQualityBookStrategy, basket_momentum, invested_fraction
+from quantit.strategy.hk_book import HKQualityBookStrategy, quality_sleeve
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights
 from quantit.strategy.signals import evaluate_signals, ma_signal, resolve_us_book_action, rsi_signal
 from quantit.strategy.tsmom import coerce_vol, tsmom_size
@@ -78,6 +78,34 @@ def load_cn_theme_scores() -> pd.DataFrame | None:
     if scores is None or scores.empty:
         return None
     return scores
+
+
+def _positive_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _non_negative_int(value: object, default: int) -> int:
+    try:
+        parsed = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
+
+
+def _unit_interval(value: object, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        parsed = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    if parsed != parsed or parsed < 0.0 or parsed > 1.0:
+        return default
+    return parsed
 
 
 class PaperRunner:
@@ -357,17 +385,7 @@ class PaperRunner:
         session = asof[-1]
         cfg = strategy_params("tsmom")
         defaults = HKQualityBookStrategy()
-        lookback = int(cfg.get("lookback", defaults.lookback))
-        skip = int(cfg.get("skip", defaults.skip))
-        risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
-        invested_on = float(cfg.get("invested_on", defaults.invested_on))
-        mom = basket_momentum(ohlcv, lookback, skip)
-        mom_val: float | None = None
-        if not mom.empty:
-            hit = mom.asof(session)
-            if hit is not None and not pd.isna(hit):
-                mom_val = float(hit)
-        frac = invested_fraction(mom_val, invested_on=invested_on, risk_off_scale=risk_off_scale)
+        frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
         prices: dict[str, float] = {}
         for symbol in US_QUALITY:
             try:
@@ -404,6 +422,7 @@ class PaperRunner:
             force=force,
             market_id="us",
             why=why,
+            allow_buys=not self._drawdown_breached("us"),
         )
         self._mark("us", "US-QUALITY-BOOK")
         return orders
@@ -460,19 +479,22 @@ class PaperRunner:
         )
         return [self._record(order, why)]
 
-    def _us_drawdown_breached(self) -> bool:
-        account = self.broker.get_account("us")
+    def _drawdown_breached(self, market_id: str) -> bool:
+        account = self.broker.get_account(market_id)
         if account.initial_cash <= 0:
             return False
-        adapter = self.broker.registry.get("us")
+        adapter = self.broker.registry.get(market_id)
         equity = account.cash
-        for pos in self.broker.list_positions("us"):
+        for pos in self.broker.list_positions(market_id):
             try:
                 last = adapter.fetch_quote(pos.symbol).last
             except (ValueError, KeyError):
                 last = pos.avg_cost
             equity += last * pos.quantity
         return equity < account.initial_cash * (1.0 - PAPER_MAX_DRAWDOWN)
+
+    def _us_drawdown_breached(self) -> bool:
+        return self._drawdown_breached("us")
 
     def _tick_hk_warrants(self, force: bool = False) -> list[dict[str, Any]]:
         adapter = self.broker.registry.get("hk")
@@ -640,17 +662,7 @@ class PaperRunner:
         session = asof[-1]
         cfg = strategy_params("hk_quality_book")
         defaults = HKQualityBookStrategy()
-        lookback = int(cfg.get("lookback", defaults.lookback))
-        skip = int(cfg.get("skip", defaults.skip))
-        risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
-        invested_on = float(cfg.get("invested_on", defaults.invested_on))
-        mom = basket_momentum(ohlcv, lookback, skip)
-        mom_val: float | None = None
-        if not mom.empty:
-            hit = mom.asof(session)
-            if hit is not None and not pd.isna(hit):
-                mom_val = float(hit)
-        frac = invested_fraction(mom_val, invested_on=invested_on, risk_off_scale=risk_off_scale)
+        frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
         prices: dict[str, float] = {}
         for symbol in HK_QUALITY:
             try:
@@ -684,6 +696,7 @@ class PaperRunner:
             turnover_band=float(cfg.get("turnover_band", defaults.turnover_band)),
             force=force,
             why=why,
+            allow_buys=not self._drawdown_breached("hk"),
         )
         self._mark("hk", "HK-QUALITY-BOOK")
         return orders
@@ -808,17 +821,7 @@ class PaperRunner:
         session = asof[-1]
         cfg = strategy_params("cn_quality_book")
         defaults = CNQualityBookStrategy()
-        lookback = int(cfg.get("lookback", defaults.lookback))
-        skip = int(cfg.get("skip", defaults.skip))
-        risk_off_scale = float(cfg.get("risk_off_scale", defaults.risk_off_scale))
-        invested_on = float(cfg.get("invested_on", defaults.invested_on))
-        mom = basket_momentum(ohlcv, lookback, skip)
-        mom_val: float | None = None
-        if not mom.empty:
-            hit = mom.asof(session)
-            if hit is not None and not pd.isna(hit):
-                mom_val = float(hit)
-        frac = invested_fraction(mom_val, invested_on=invested_on, risk_off_scale=risk_off_scale)
+        frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
         prices: dict[str, float] = {}
         for symbol in CN_QUALITY:
             try:
@@ -853,9 +856,36 @@ class PaperRunner:
             force=force,
             market_id="cn",
             why=why,
+            allow_buys=not self._drawdown_breached("cn"),
         )
         self._mark("cn", "CN-QUALITY-BOOK")
         return orders
+
+    def _quality_sleeve(
+        self,
+        ohlcv: dict[str, pd.DataFrame],
+        cfg: dict[str, Any],
+        defaults: HKQualityBookStrategy,
+        session: pd.Timestamp,
+    ) -> tuple[float, float | None]:
+        lookback = _positive_int(cfg.get("lookback"), defaults.lookback)
+        skip = _non_negative_int(cfg.get("skip"), defaults.skip)
+        if skip >= lookback:
+            skip = defaults.skip if defaults.skip < lookback else 0
+        invested_on = _unit_interval(cfg.get("invested_on"), defaults.invested_on)
+        if invested_on <= 0:
+            invested_on = defaults.invested_on
+        return quality_sleeve(
+            ohlcv,
+            lookback=lookback,
+            skip=skip,
+            invested_on=invested_on,
+            risk_off_scale=_unit_interval(cfg.get("risk_off_scale"), defaults.risk_off_scale),
+            target_vol=coerce_vol(cfg.get("target_vol", defaults.target_vol), defaults.target_vol),
+            vol_lookback=_positive_int(cfg.get("vol_lookback"), defaults.vol_lookback),
+            vol_floor=coerce_vol(cfg.get("vol_floor", defaults.vol_floor), defaults.vol_floor),
+            asof=session,
+        )
 
     def _rebalance_hk(
         self,
@@ -866,6 +896,7 @@ class PaperRunner:
         force: bool = False,
         market_id: str = "hk",
         why: str | None = None,
+        allow_buys: bool = True,
     ) -> list[dict[str, Any]]:
         account = self.broker.get_account(market_id)
         equity = account.cash
@@ -897,7 +928,7 @@ class PaperRunner:
                 continue
             if diff < 0:
                 sells.append((symbol, min(-diff, current)))
-            else:
+            elif allow_buys:
                 buys.append((symbol, diff))
 
         estimated_cash = account.cash

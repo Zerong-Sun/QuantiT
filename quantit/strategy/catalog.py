@@ -34,7 +34,7 @@ PARAM_HELP: dict[str, str] = {
     "turnover_band": "Skip a name if the qty change vs current is within this band.",
     "lookback": "Return lookback in bars (252 ≈ 12 months).",
     "skip": "Skip the most recent bars to avoid 1-month reversal.",
-    "target_vol": "Annualized volatility target for position size.",
+    "target_vol": "Annualized volatility target; quality books shrink the sleeve only (no leverage).",
     "vol_lookback": "Bars used to estimate realized volatility.",
     "vol_floor": "Minimum realized vol so size cannot explode.",
     "max_position_pct": "Cap on equity deployed in the name.",
@@ -140,7 +140,7 @@ def _theme_entry() -> dict[str, Any]:
         "name": "HK Tech Theme Rotation",
         "class_name": ThemeRotationStrategy.__name__,
         "markets": ["hk"],
-        "horizon": "Monthly, multi-asset",
+        "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(ThemeRotationStrategy) or "",
         "thesis": (
             "Long-horizon Hang Seng TECH / Chinese-internet allocation. Capital rotates "
@@ -149,7 +149,7 @@ def _theme_entry() -> dict[str, Any]:
             "international macros."
         ),
         "rules": [
-            "Rebalance on the last HK session of each month.",
+            "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Score = demand + policy + international (weights below), each clipped to [-2, 2].",
             "If the best theme score is below cash_threshold, invest only risk_off_invested and hold the rest in cash.",
             "Otherwise softmax theme scores into weights; equal-weight when the score range is inside equal_weight_band.",
@@ -185,7 +185,7 @@ def _hk_quality_entry() -> dict[str, Any]:
         "name": "HK Quality Basket TSMOM",
         "class_name": HKQualityBookStrategy.__name__,
         "markets": ["hk"],
-        "horizon": "Monthly, multi-asset",
+        "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(HKQualityBookStrategy) or "",
         "thesis": (
             "One time-series momentum signal on an equal-weight book of operating "
@@ -193,10 +193,10 @@ def _hk_quality_entry() -> dict[str, Any]:
             "Not Hang Seng TECH rotation. Price only — quality labels pick the pool."
         ),
         "rules": [
-            "Rebalance on the last HK session of each month.",
+            "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on equally across names with a quote.",
-            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash).",
+            "If momentum > 0, invest invested_on equally, then shrink by vol_scale vs target_vol (never lever).",
+            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash), then apply the same vol_scale.",
             "Names that cannot fill one board lot stay out; residual weight is cash, not 3033.HK.",
             "Paper runner uses this card only after a walk-forward promote with hk_primary: hk_quality_book.",
         ],
@@ -212,7 +212,7 @@ def _cn_quality_entry() -> dict[str, Any]:
         "name": "CN Quality Basket TSMOM",
         "class_name": CNQualityBookStrategy.__name__,
         "markets": ["cn"],
-        "horizon": "Monthly, multi-asset",
+        "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(CNQualityBookStrategy) or "",
         "thesis": (
             "One time-series momentum signal on an equal-weight book of operating "
@@ -220,10 +220,10 @@ def _cn_quality_entry() -> dict[str, Any]:
             "Not industry-ETF rotation. Price only — quality labels pick the pool."
         ),
         "rules": [
-            "Rebalance on the last A-share session of each month.",
+            "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on equally across names with a quote.",
-            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash).",
+            "If momentum > 0, invest invested_on equally, then shrink by vol_scale vs target_vol (never lever).",
+            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash), then apply the same vol_scale.",
             "Names that cannot fill one 100-share lot stay out; residual weight is cash, not 510300.SS.",
             "Paper runner uses this card only after a walk-forward promote with cn_primary: cn_quality_book.",
         ],
@@ -239,10 +239,10 @@ def _cn_etf_entry() -> dict[str, Any]:
         "name": "CN Industry ETF Rotation",
         "class_name": ThemeRotationStrategy.__name__,
         "markets": ["cn"],
-        "horizon": "Monthly, multi-asset",
+        "horizon": "Daily, multi-asset",
         "summary": (
             "Allocate onshore A-share industry ETFs from precomputed regime scores. "
-            "Rebalances on the last Shanghai/Shenzhen session of each month."
+            "Rebalances each session; turnover_band skips tiny quantity changes."
         ),
         "thesis": (
             "Long-horizon onshore industry-ETF allocation. Capital rotates across "
@@ -251,7 +251,7 @@ def _cn_etf_entry() -> dict[str, Any]:
             "an industrial-policy calendar, and international macros."
         ),
         "rules": [
-            "Rebalance on the last A-share session of each month.",
+            "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Score = demand + policy + international (weights below), each clipped to [-2, 2].",
             "Demand is theme relative volume plus cumulative return versus 510300.SS.",
             "If the best theme score is below cash_threshold, invest only risk_off_invested and hold the rest in cash.",
