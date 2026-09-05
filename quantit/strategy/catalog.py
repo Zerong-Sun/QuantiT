@@ -40,7 +40,8 @@ PARAM_HELP: dict[str, str] = {
     "max_position_pct": "Cap on equity deployed in the name.",
     "rebalance_band": "Ignore size changes smaller than this fraction of the current position.",
     "risk_off_scale": "When momentum is off, hold this fraction of the risk-on sleeve.",
-    "invested_on": "Equity fraction in the equal-weight book when basket momentum is positive.",
+    "invested_on": "Equity fraction in the book when basket momentum is positive.",
+    "weighting": "Inside the sleeve: inv_vol (vol-parity) or equal (1/n).",
 }
 
 
@@ -195,9 +196,9 @@ def _hk_quality_entry() -> dict[str, Any]:
         "rules": [
             "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on equally, then shrink by vol_scale vs target_vol (never lever).",
-            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash), then apply the same vol_scale.",
-            "Names that cannot fill one board lot stay out; residual weight is cash, not 3033.HK.",
+            "If momentum > 0, invest invested_on, then shrink by vol_scale vs target_vol (never lever).",
+            "If momentum ≤ 0, invest risk_off_scale (0 means cash), then apply the same vol_scale.",
+            "Split the sleeve by inverse-vol (weighting=equal for 1/n). Names that cannot fill one board lot stay out; residual is cash, not 3033.HK.",
             "Paper runner uses this card only after a walk-forward promote with hk_primary: hk_quality_book.",
         ],
         "parameters": _params(HKQualityBookStrategy, skip=frozenset({"universe"})),
@@ -222,9 +223,9 @@ def _cn_quality_entry() -> dict[str, Any]:
         "rules": [
             "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on equally, then shrink by vol_scale vs target_vol (never lever).",
-            "If momentum ≤ 0, invest risk_off_scale equally (0 means cash), then apply the same vol_scale.",
-            "Names that cannot fill one 100-share lot stay out; residual weight is cash, not 510300.SS.",
+            "If momentum > 0, invest invested_on, then shrink by vol_scale vs target_vol (never lever). CN default target_vol is 0.30.",
+            "If momentum ≤ 0, invest risk_off_scale (0 means cash), then apply the same vol_scale. Do not raise risk_off_scale.",
+            "Split the sleeve by inverse-vol (weighting=equal for 1/n). Names that cannot fill one 100-share lot stay out; residual is cash, not 510300.SS.",
             "Paper runner uses this card only after a walk-forward promote with cn_primary: cn_quality_book.",
         ],
         "parameters": _params(CNQualityBookStrategy, skip=frozenset({"universe"})),

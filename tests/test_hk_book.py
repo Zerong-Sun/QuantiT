@@ -285,4 +285,138 @@ def test_catalog_exposes_quality_vol_params() -> None:
         entry = get_strategy(strategy_id)
         assert entry is not None
         names = {p["name"] for p in entry["parameters"]}
-        assert {"target_vol", "vol_lookback", "vol_floor"} <= names
+        assert {"target_vol", "vol_lookback", "vol_floor", "weighting"} <= names
+
+
+def test_hk_defaults_keep_target_vol_and_inv_vol() -> None:
+    strat = HKQualityBookStrategy()
+    assert strat.target_vol == pytest.approx(0.15)
+    assert strat.weighting == "inv_vol"
+    assert strat.risk_off_scale == pytest.approx(0.5)
+    positional = HKQualityBookStrategy(252, 21, 0.5, 0.95, 0.02, 0.15, 20, 0.05, ("0002.HK", "0005.HK"))
+    assert positional.universe == ("0002.HK", "0005.HK")
+    assert positional.weighting == "inv_vol"
+
+
+def test_inv_vol_weights_give_less_to_hot_name() -> None:
+    from quantit.strategy.hk_book import inv_vol_weights
+
+    weights = inv_vol_weights(["A", "B"], {"A": 0.10, "B": 0.40}, sleeve=0.95)
+    assert weights["A"] > weights["B"]
+    assert sum(weights.values()) == pytest.approx(0.95)
+    assert weights["A"] / weights["B"] == pytest.approx(4.0)
+
+
+def test_inv_vol_missing_vol_uses_median_not_floor() -> None:
+    from quantit.strategy.hk_book import inv_vol_weights
+
+    weights = inv_vol_weights(["A", "B", "C"], {"A": 0.10, "B": 0.30, "C": None}, sleeve=0.90)
+    # median(0.10, 0.30) = 0.20 → inv 10, 3.333, 5
+    assert weights["C"] == pytest.approx(0.90 * 5.0 / (10.0 + 10.0 / 3.0 + 5.0))
+    assert weights["A"] > weights["C"] > weights["B"]
+    floor_as_known = inv_vol_weights(["A", "B", "C"], {"A": 0.10, "B": 0.30, "C": 0.05}, sleeve=0.90)
+    assert weights["C"] < floor_as_known["C"]
+
+
+def test_inv_vol_inf_vol_gets_zero_weight() -> None:
+    from quantit.strategy.hk_book import inv_vol_weights
+
+    weights = inv_vol_weights(["A", "B"], {"A": 0.10, "B": float("inf")}, sleeve=0.95)
+    assert "B" not in weights
+    assert weights["A"] == pytest.approx(0.95)
+    assert inv_vol_weights(["A"], {"A": float("inf")}, sleeve=0.95) == {}
+    assert inv_vol_weights(["A", "B"], {"A": None, "B": None}, sleeve=0.90) == {
+        "A": pytest.approx(0.45),
+        "B": pytest.approx(0.45),
+    }
+    assert inv_vol_weights(["A"], {"A": 0.2}, float("nan")) == {}
+
+
+def test_invalid_weighting_raises() -> None:
+    with pytest.raises(ValueError, match="weighting"):
+        HKQualityBookStrategy(weighting="hrp")
+
+
+def test_quality_name_targets_shrinks_hot_name() -> None:
+    from quantit.strategy.hk_book import quality_name_targets
+
+    dates = pd.date_range("2018-01-01", periods=80, freq="B")
+
+    def frame(prices: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 0.5 for p in prices],
+                "low": [max(0.1, p - 0.5) for p in prices],
+                "close": prices,
+                "volume": [1_000_000.0] * len(prices),
+            },
+            index=dates,
+        )
+
+    calm = [100.0 + i * 0.05 for i in range(80)]
+    noisy = [100.0]
+    for i in range(1, 80):
+        noisy.append(noisy[-1] * (1.04 if i % 2 == 0 else 0.97))
+    book = {"0002.HK": frame(calm), "0005.HK": frame(noisy)}
+    weights = quality_name_targets(
+        book,
+        ["0002.HK", "0005.HK"],
+        0.95,
+        dates[-1],
+        vol_lookback=20,
+        vol_floor=0.05,
+        weighting="inv_vol",
+    )
+    assert weights["0002.HK"] > weights["0005.HK"]
+    assert sum(weights.values()) == pytest.approx(0.95)
+
+    equal = quality_name_targets(
+        book,
+        ["0002.HK", "0005.HK"],
+        0.95,
+        dates[-1],
+        vol_lookback=20,
+        vol_floor=0.05,
+        weighting="equal",
+    )
+    assert equal["0002.HK"] == pytest.approx(equal["0005.HK"])
+
+
+def test_inv_vol_backtest_holds_less_of_noisy_name() -> None:
+    dates = pd.date_range("2018-01-01", periods=400, freq="B")
+
+    def frame(prices: list[float]) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 0.5 for p in prices],
+                "low": [max(0.1, p - 0.5) for p in prices],
+                "close": prices,
+                "volume": [1_000_000.0] * len(prices),
+            },
+            index=dates,
+        )
+
+    calm = [100.0 + i * 0.2 for i in range(400)]
+    noisy = [100.0]
+    for i in range(1, 400):
+        noisy.append(noisy[-1] * (1.03 if i % 2 == 0 else 0.985))
+    book = {"0002.HK": frame(calm), "0005.HK": frame(noisy)}
+    result = Backtester(initial_cash=1_000_000, commission_rate=0.0, slippage_rate=0.0).run(
+        HKQualityBookStrategy(
+            lookback=126,
+            skip=21,
+            risk_off_scale=0.0,
+            target_vol=5.0,
+            weighting="inv_vol",
+            universe=("0002.HK", "0005.HK"),
+        ),
+        book,
+        symbol="HK-QUALITY-BOOK",
+    )
+    marks = {s: float(book[s]["close"].iloc[-1]) for s in book}
+    equity = result.portfolio.equity(marks)
+    calm_w = result.portfolio.get_position("0002.HK").quantity * marks["0002.HK"] / equity
+    noisy_w = result.portfolio.get_position("0005.HK").quantity * marks["0005.HK"] / equity
+    assert calm_w > noisy_w

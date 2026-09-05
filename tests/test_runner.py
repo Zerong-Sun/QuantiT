@@ -492,6 +492,65 @@ class TestRunner:
         assert bought & set(HK_QUALITY)
         assert "0700.HK" not in bought
 
+    def test_hk_quality_paper_overweights_calm_name(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import HK_QUALITY
+
+        write_active_params(
+            {
+                "hk_primary": "hk_quality_book",
+                "strategies": {
+                    "hk_quality_book": {
+                        "lookback": 40,
+                        "skip": 5,
+                        "risk_off_scale": 0.0,
+                        "invested_on": 0.95,
+                        "target_vol": 5.0,
+                        "weighting": "inv_vol",
+                    }
+                },
+            }
+        )
+        n = 80
+        dates = pd.date_range("2024-01-02", periods=n, freq="B")
+
+        def frame(prices: list[float]) -> pd.DataFrame:
+            return pd.DataFrame(
+                {
+                    "open": prices,
+                    "high": [p + 1 for p in prices],
+                    "low": [p - 1 for p in prices],
+                    "close": prices,
+                    "volume": [1_000_000.0] * n,
+                },
+                index=dates,
+            )
+
+        calm = [50.0 + i * 0.2 for i in range(n)]
+        noisy = [50.0]
+        for i in range(1, n):
+            noisy.append(noisy[-1] * (1.04 if i % 2 == 0 else 0.97))
+        frames = {
+            "AAPL": _ohlcv(n=n, start_price=150.0),
+            "0700.HK": _ohlcv(n=n, start_price=300.0),
+            "600519.SS": _ohlcv(n=n, start_price=10.0, step=0.05),
+        }
+        for sym in HK_QUALITY:
+            frames[sym] = frame(list(calm) if sym != "0005.HK" else noisy)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=(), hk_warrants=(), hk_scores=None)
+        runner.tick(markets=("hk",), force=True)
+        calm_pos = broker.get_position("hk", "0002.HK")
+        noisy_pos = broker.get_position("hk", "0005.HK")
+        assert calm_pos is not None and noisy_pos is not None
+        last_calm = float(frames["0002.HK"]["close"].iloc[-1])
+        last_noisy = float(frames["0005.HK"]["close"].iloc[-1])
+        assert calm_pos.quantity * last_calm > noisy_pos.quantity * last_noisy
+
     def test_cn_quality_book_buys_quality_not_csi300(self) -> None:
         from quantit.research.params import write_active_params
         from quantit.research.universes import CN_QUALITY

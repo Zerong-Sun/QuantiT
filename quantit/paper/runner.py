@@ -27,7 +27,7 @@ from quantit.paper.capital import (
 from quantit.research.params import strategy_params, us_primary, hk_primary, cn_primary
 from quantit.research.universes import HK_QUALITY, CN_QUALITY, US_QUALITY
 from quantit.strategy.cn_book import CNQualityBookStrategy
-from quantit.strategy.hk_book import HKQualityBookStrategy, quality_sleeve
+from quantit.strategy.hk_book import HKQualityBookStrategy, quality_name_targets, quality_sleeve
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights
 from quantit.strategy.signals import evaluate_signals, ma_signal, resolve_us_book_action, rsi_signal
 from quantit.strategy.tsmom import coerce_vol, tsmom_size
@@ -395,8 +395,7 @@ class PaperRunner:
             if q.last > 0:
                 prices[symbol] = q.last
         quoted = [s for s in US_QUALITY if s in prices]
-        n = len(quoted)
-        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("us")
         equity = account.cash
         for pos in self.broker.list_positions("us"):
@@ -672,8 +671,7 @@ class PaperRunner:
             if q.last > 0:
                 prices[symbol] = q.last
         quoted = [s for s in HK_QUALITY if s in prices]
-        n = len(quoted)
-        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("hk")
         equity = account.cash
         for pos in self.broker.list_positions("hk"):
@@ -831,8 +829,7 @@ class PaperRunner:
             if q.last > 0:
                 prices[symbol] = q.last
         quoted = [s for s in CN_QUALITY if s in prices]
-        n = len(quoted)
-        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("cn")
         equity = account.cash
         for pos in self.broker.list_positions("cn"):
@@ -885,6 +882,28 @@ class PaperRunner:
             vol_lookback=_positive_int(cfg.get("vol_lookback"), defaults.vol_lookback),
             vol_floor=coerce_vol(cfg.get("vol_floor", defaults.vol_floor), defaults.vol_floor),
             asof=session,
+        )
+
+    def _quality_targets(
+        self,
+        ohlcv: dict[str, pd.DataFrame],
+        quoted: list[str],
+        frac: float,
+        cfg: dict[str, Any],
+        defaults: HKQualityBookStrategy,
+        session: pd.Timestamp,
+    ) -> dict[str, float]:
+        weighting = str(cfg.get("weighting", defaults.weighting) or defaults.weighting)
+        if weighting.strip().lower() not in {"inv_vol", "equal"}:
+            weighting = defaults.weighting
+        return quality_name_targets(
+            ohlcv,
+            quoted,
+            frac,
+            session,
+            vol_lookback=_positive_int(cfg.get("vol_lookback"), defaults.vol_lookback),
+            vol_floor=coerce_vol(cfg.get("vol_floor", defaults.vol_floor), defaults.vol_floor),
+            weighting=weighting,
         )
 
     def _rebalance_hk(

@@ -1,8 +1,9 @@
-"""Equal-weight HK quality book with a single basket TSMOM overlay."""
+"""HK quality book: EW basket TSMOM sleeve, inverse-vol inside the sleeve."""
 
 from __future__ import annotations
 
 import math
+import statistics
 
 import pandas as pd
 
@@ -108,21 +109,152 @@ def basket_vol_series(ohlcv: dict[str, pd.DataFrame], period: int) -> pd.Series:
     return index.pct_change().rolling(int(period)).std() * math.sqrt(252)
 
 
+def _asof_number(series: pd.Series | None, asof: pd.Timestamp | None = None) -> float | None:
+    """Latest value as of ``asof``. Keeps ``+inf``; NaN becomes None."""
+    if series is None or getattr(series, "empty", True):
+        return None
+    hit = series.iloc[-1] if asof is None else series.asof(pd.Timestamp(asof))
+    if hit is None or pd.isna(hit):
+        return None
+    value = float(hit)
+    if math.isnan(value):
+        return None
+    return value
+
+
+def _asof_float(series: pd.Series | None, asof: pd.Timestamp | None = None) -> float | None:
+    value = _asof_number(series, asof)
+    if value is None or not math.isfinite(value):
+        return None
+    return value
+
+
 def basket_realized_vol(
     ohlcv: dict[str, pd.DataFrame],
     period: int,
     asof: pd.Timestamp | None = None,
 ) -> float | None:
     series = basket_vol_series(ohlcv, period)
-    if series.empty:
-        return None
-    hit = series.iloc[-1] if asof is None else series.asof(pd.Timestamp(asof))
-    if hit is None or pd.isna(hit):
-        return None
-    value = float(hit)
-    if not math.isfinite(value):
-        return None
-    return value
+    return _asof_float(series, asof)
+
+
+def name_vol_series(ohlcv: dict[str, pd.DataFrame], period: int) -> dict[str, pd.Series]:
+    """Annualized rolling vol of each name's close."""
+    out: dict[str, pd.Series] = {}
+    if period <= 0:
+        return out
+    for symbol, df in ohlcv.items():
+        if df is None or getattr(df, "empty", True) or "close" not in df.columns:
+            continue
+        out[symbol] = df["close"].astype(float).pct_change().rolling(int(period)).std() * math.sqrt(
+            252
+        )
+    return out
+
+
+def vols_asof(
+    series_map: dict[str, pd.Series],
+    names: list[str],
+    asof: pd.Timestamp,
+) -> dict[str, float | None]:
+    return {symbol: _asof_number(series_map.get(symbol), asof) for symbol in names}
+
+
+def name_realized_vols(
+    ohlcv: dict[str, pd.DataFrame],
+    period: int,
+    asof: pd.Timestamp,
+    names: list[str],
+) -> dict[str, float | None]:
+    return vols_asof(name_vol_series(ohlcv, period), names, asof)
+
+
+def inv_vol_weights(
+    names: list[str],
+    vols: dict[str, float | None],
+    sleeve: float,
+    vol_floor: float = 0.05,
+) -> dict[str, float]:
+    """Vol-parity weights inside a sleeve.
+
+    Missing/NaN/non-positive vol uses the median of known finite vols (equal
+    weights if none are known). ``+inf`` vol is dropped (weight 0) so a
+    exploding name is not treated as low-vol.
+    """
+    try:
+        sleeve_f = float(sleeve)
+    except (TypeError, ValueError):
+        return {}
+    if not names or not math.isfinite(sleeve_f) or sleeve_f <= 0:
+        return {}
+    try:
+        floor = float(vol_floor)
+    except (TypeError, ValueError):
+        floor = 0.05
+    if not math.isfinite(floor) or floor <= 0:
+        floor = 0.05
+    finite: dict[str, float] = {}
+    missing: list[str] = []
+    for symbol in names:
+        raw = vols.get(symbol)
+        try:
+            vol = float(raw) if raw is not None else float("nan")
+        except (TypeError, ValueError):
+            vol = float("nan")
+        if vol == math.inf:
+            continue
+        if math.isnan(vol) or not math.isfinite(vol) or vol <= 0:
+            missing.append(symbol)
+            continue
+        finite[symbol] = max(vol, floor)
+    if finite:
+        fill = float(statistics.median(finite.values()))
+        for symbol in missing:
+            finite[symbol] = fill
+    else:
+        if not missing:
+            return {}
+        share = sleeve_f / len(missing)
+        return {symbol: share for symbol in missing}
+    inv = {symbol: 1.0 / vol for symbol, vol in finite.items()}
+    total = sum(inv.values())
+    if total <= 0:
+        return {}
+    return {symbol: sleeve_f * weight / total for symbol, weight in inv.items()}
+
+
+def quality_targets_from_vols(
+    names: list[str],
+    vols: dict[str, float | None],
+    sleeve: float,
+    *,
+    weighting: str = "inv_vol",
+    vol_floor: float = 0.05,
+) -> dict[str, float]:
+    if sleeve <= 0 or not names:
+        return {}
+    mode = (weighting or "inv_vol").strip().lower()
+    if mode == "equal":
+        n = len(names)
+        return {symbol: sleeve / n for symbol in names}
+    return inv_vol_weights(names, vols, sleeve, vol_floor)
+
+
+def quality_name_targets(
+    ohlcv: dict[str, pd.DataFrame],
+    names: list[str],
+    sleeve: float,
+    asof: pd.Timestamp,
+    *,
+    vol_lookback: int,
+    vol_floor: float,
+    weighting: str = "inv_vol",
+) -> dict[str, float]:
+    """Sleeve split across ``names`` (inverse-vol by default)."""
+    vols = name_realized_vols(ohlcv, vol_lookback, asof, names)
+    return quality_targets_from_vols(
+        names, vols, sleeve, weighting=weighting, vol_floor=vol_floor
+    )
 
 
 def quality_sleeve(
@@ -156,11 +288,12 @@ def quality_sleeve(
 
 
 class HKQualityBookStrategy(Strategy):
-    """Equal-weight HK operating blue chips; one skipped-lookback momentum signal.
+    """HK operating blue chips; one skipped-lookback momentum signal.
 
     Rebalances each session. Residual weight stays cash (no Hang Seng TECH ETF
     fallback). ``turnover_band`` skips names whose quantity change is too small
     to bother. Realized basket vol can only shrink the sleeve (no leverage).
+    Names inside the sleeve are inverse-vol weighted unless ``weighting=equal``.
     No shorting.
     """
 
@@ -175,6 +308,7 @@ class HKQualityBookStrategy(Strategy):
         vol_lookback: int = 20,
         vol_floor: float = 0.05,
         universe: tuple[str, ...] | None = None,
+        weighting: str = "inv_vol",
     ) -> None:
         if lookback <= 0:
             raise ValueError("lookback must be positive")
@@ -192,6 +326,9 @@ class HKQualityBookStrategy(Strategy):
             raise ValueError("vol_lookback must be positive")
         if vol_floor <= 0:
             raise ValueError("vol_floor must be positive")
+        mode = (weighting or "inv_vol").strip().lower()
+        if mode not in {"inv_vol", "equal"}:
+            raise ValueError("weighting must be 'inv_vol' or 'equal'")
         self.lookback = lookback
         self.skip = skip
         self.risk_off_scale = float(risk_off_scale)
@@ -200,14 +337,17 @@ class HKQualityBookStrategy(Strategy):
         self.target_vol = float(target_vol)
         self.vol_lookback = int(vol_lookback)
         self.vol_floor = float(vol_floor)
+        self.weighting = mode
         self.universe = tuple(universe) if universe is not None else HK_QUALITY
         self._mom: pd.Series | None = None
         self._vol: pd.Series | None = None
+        self._name_vol: dict[str, pd.Series] | None = None
 
     def on_start(self, context: Context) -> None:
         frames = context.data_map or {context.symbol: context.data}
         self._mom = basket_momentum(frames, self.lookback, self.skip)
         self._vol = basket_vol_series(frames, self.vol_lookback)
+        self._name_vol = name_vol_series(frames, self.vol_lookback)
         if self._mom is not None and not self._mom.empty:
             context.indicators["hk_basket_tsmom"] = self._mom
         if self._vol is not None and not self._vol.empty:
@@ -243,8 +383,14 @@ class HKQualityBookStrategy(Strategy):
         ]
         if not quoted and frac > 0:
             quoted = [s for s, px in (context.prices or {}).items() if px and px > 0]
-        n = len(quoted)
-        target = {s: (frac / n) for s in quoted} if n and frac > 0 else {}
+        vols = vols_asof(self._name_vol or {}, quoted, ts)
+        target = quality_targets_from_vols(
+            quoted,
+            vols,
+            frac,
+            weighting=self.weighting,
+            vol_floor=self.vol_floor,
+        )
         self._rebalance(context, target)
 
     def _rebalance(self, context: Context, target_weights: dict[str, float]) -> None:

@@ -39,6 +39,30 @@ def _book(n: int = 400, start_price: float = 100.0, step: float = 0.3) -> dict[s
 def test_universe_defaults_to_cn_quality() -> None:
     strat = CNQualityBookStrategy()
     assert strat.universe == CN_QUALITY
+    assert strat.target_vol == pytest.approx(0.30)
+    assert strat.weighting == "inv_vol"
+    assert strat.risk_off_scale == pytest.approx(0.5)
+
+
+def test_catalog_cn_default_target_vol_is_higher_than_hk() -> None:
+    from quantit.strategy.catalog import get_strategy
+
+    cn = get_strategy("cn_quality_book")
+    hk = get_strategy("hk_quality_book")
+    assert cn is not None and hk is not None
+    cn_vol = next(p["value"] for p in cn["parameters"] if p["name"] == "target_vol")
+    hk_vol = next(p["value"] for p in hk["parameters"] if p["name"] == "target_vol")
+    assert cn_vol == pytest.approx(0.30)
+    assert hk_vol == pytest.approx(0.15)
+
+
+def test_cn_yaml_without_target_vol_uses_constructor_default() -> None:
+    from quantit.strategy.tsmom import coerce_vol
+
+    defaults = CNQualityBookStrategy()
+    cfg: dict = {"lookback": 252, "skip": 0, "risk_off_scale": 0.5}
+    target_vol = coerce_vol(cfg.get("target_vol", defaults.target_vol), defaults.target_vol)
+    assert target_vol == pytest.approx(0.30)
 
 
 def test_uptrend_holds_names() -> None:
