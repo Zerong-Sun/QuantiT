@@ -148,7 +148,7 @@ class TestMonthEnd:
 
 
 class TestMultiAssetBacktest:
-    def test_equity_curve_and_month_end_trades(self) -> None:
+    def test_equity_curve_and_daily_trades(self) -> None:
         n = 80
         a = _ohlcv(n, "2020-01-01", 50.0, volume=2_000_000)
         b = _ohlcv(n, "2020-01-01", 80.0, volume=1_500_000)
@@ -170,6 +170,9 @@ class TestMultiAssetBacktest:
         assert result.equity_curve.iloc[0] == 100_000
         assert len(result.trades) > 0
         assert {t.symbol for t in result.trades} <= {"AAA.HK", "BBB.HK"}
+        first = min(t.timestamp for t in result.trades)
+        assert pd.Timestamp(first).month == 1
+        assert pd.Timestamp(first).day <= 10
 
     def test_risk_off_raises_cash(self) -> None:
         n = 50

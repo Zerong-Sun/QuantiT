@@ -105,6 +105,16 @@ class TestPortfolioRoute:
         assert pos["day_pnl"] == pytest.approx(10.0)
         assert pos["unrealized"] is not None
 
+    def test_hk_position_includes_company_name(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v1/orders",
+            json={"market": "hk", "symbol": "0700.HK", "side": "buy", "quantity": 100},
+        )
+        assert resp.status_code == 200
+        data = client.get("/api/v1/portfolio").json()
+        pos = next(p for p in data["positions"] if p["market_id"] == "hk")
+        assert pos["name"] == "Tencent"
+
     def test_month_pnl_keeps_older_fills(self, client: TestClient) -> None:
         client.post(
             "/api/v1/orders",

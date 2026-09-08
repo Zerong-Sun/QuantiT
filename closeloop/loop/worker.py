@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import threading
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,6 +100,7 @@ class LoopWorker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._seen_inbox: set[str] = set()
+        self.on_target: Callable[[WorkerStatus, TargetBook], None] | None = None
 
     def source(self) -> str:
         if self.force_fixture or not dump_exists(self.data_dir):
@@ -159,11 +161,21 @@ class LoopWorker:
             thread.join(timeout=min(2.0, self.interval_sec + 0.1))
 
     def _loop(self) -> None:
-        self.step()
+        self._step_and_notify()
         while not self._stop.wait(self.interval_sec):
             if not self._status.running:
                 return
-            self.step()
+            self._step_and_notify()
+
+    def _step_and_notify(self) -> None:
+        status, target = self.step()
+        cb = self.on_target
+        if cb is None or target is None or not status.passed:
+            return
+        try:
+            cb(status, target)
+        except Exception as exc:
+            self._record_error(f"on_target: {exc}\n{traceback.format_exc(limit=4)}")
 
     def step(self, *, inbox_only: bool = False) -> tuple[WorkerStatus, TargetBook | None]:
         target: TargetBook | None = None

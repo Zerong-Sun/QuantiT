@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
@@ -24,7 +25,23 @@ def make_worker() -> LoopWorker:
     force = os.environ.get("CLOSELOOP_FIXTURE", "").strip() in {"1", "true", "yes"}
     if not force and not dump_exists():
         force = True
-    return LoopWorker(force_fixture=force)
+    end = datetime.now().strftime("%Y-%m-%d")
+    return LoopWorker(force_fixture=force, end=end)
+
+
+def bind_broker(worker: LoopWorker, broker: PaperBroker) -> None:
+    """Book the first passing target of each calendar day onto ``cl`` only."""
+    booked_on: dict[str, object] = {"day": None}
+
+    def on_target(_status: Any, target: TargetBook) -> None:
+        day = broker.now().date()
+        if booked_on["day"] == day:
+            return
+        fills = apply_target_book(broker, target, rationale=target.rationale)
+        if any(item.get("status") == "filled" for item in fills):
+            booked_on["day"] = day
+
+    worker.on_target = on_target
 
 
 def _unit_cost(adapter, quote) -> float:
@@ -136,6 +153,8 @@ def apply_target_book(broker: PaperBroker, book: TargetBook, rationale: str | No
 
 
 def attach_closeloop_routes(app: FastAPI, broker: PaperBroker, worker: LoopWorker) -> None:
+    bind_broker(worker, broker)
+
     def _with_book(status: dict[str, Any]) -> dict[str, Any]:
         cash, equity = _cl_marks(broker)
         status["cl_cash"] = cash

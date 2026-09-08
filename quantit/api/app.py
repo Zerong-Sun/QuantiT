@@ -30,7 +30,9 @@ from quantit.api.schemas import (
     TradeOut,
 )
 from quantit.markets.assets import allowed_list
+from quantit.markets.display import lookup_name
 from quantit.markets.registry import MarketRegistry, get_registry
+from quantit.paper.books import PAPER_BOOKS, venue_of
 from quantit.paper.broker import PaperBroker
 from quantit.paper.db import create_session, session_on
 from quantit.paper.notes import NoteBook
@@ -48,11 +50,18 @@ def _bar_time(index_value, interval: str) -> str:
     return ts.isoformat()
 
 
+def _name(market_id: str | None, symbol: str | None) -> str:
+    if not market_id or not symbol:
+        return ""
+    return lookup_name(market_id, symbol)
+
+
 def _order_out(order) -> OrderOut:
     return OrderOut(
         id=order.id,
         market_id=order.market_id,
         symbol=order.symbol,
+        name=_name(order.market_id, order.symbol),
         side=order.side,
         quantity=order.quantity,
         status=order.status,
@@ -124,25 +133,34 @@ def create_app(
 
     def _adapter(market_id: str):
         try:
-            return registry.get(market_id)
+            return registry.get(venue_of(market_id))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/api/v1/markets", response_model=List[MarketOut])
     def list_markets() -> List[MarketOut]:
-        return [
-            MarketOut(
-                id=adapter.market_id,
-                name=adapter.profile.name,
-                currency=adapter.profile.currency,
-                timezone=adapter.timezone,
-                session_hours=adapter.session_hours,
-                t_plus=adapter.t_plus,
-                intervals=list(adapter.supported_intervals),
-                allowed_asset_classes=allowed_list(adapter.market_id),
+        registered = set(registry.ids())
+        out: List[MarketOut] = []
+        for book in PAPER_BOOKS:
+            if book.venue not in registered:
+                continue
+            adapter = registry.get(book.venue)
+            out.append(
+                MarketOut(
+                    id=book.book_id,
+                    name=book.label,
+                    currency=adapter.profile.currency,
+                    timezone=adapter.timezone,
+                    session_hours=adapter.session_hours,
+                    t_plus=adapter.t_plus,
+                    intervals=list(adapter.supported_intervals),
+                    allowed_asset_classes=allowed_list(book.venue),
+                    venue=book.venue,
+                    strategy_id=book.strategy_id,
+                    label=book.label,
+                )
             )
-            for adapter in registry.all()
-        ]
+        return out
 
     @app.get("/api/v1/search", response_model=List[InstrumentOut])
     def search(market: str, q: str = "") -> List[InstrumentOut]:
@@ -214,7 +232,7 @@ def create_app(
             df = adapter.fetch_bars(canonical, "1d", start_ts, end_ts)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        bundle = evaluate_signals(market, canonical, df)
+        bundle = evaluate_signals(venue_of(market), canonical, df)
         return SignalBundleOut(**bundle)
 
     @app.get("/api/v1/notes", response_model=List[NoteOut])
@@ -226,6 +244,7 @@ def create_app(
                 body=n.body,
                 market_id=n.market_id,
                 symbol=n.symbol,
+                name=_name(n.market_id, n.symbol),
                 created_at=n.created_at,
             )
             for n in rows
@@ -242,6 +261,7 @@ def create_app(
             body=note.body,
             market_id=note.market_id,
             symbol=note.symbol,
+            name=_name(note.market_id, note.symbol),
             created_at=note.created_at,
         )
 
@@ -253,19 +273,25 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         return {"ok": True}
 
+    def _runner_out() -> RunnerOut:
+        snap = runner.snapshot()
+        for action in snap.get("actions") or []:
+            action["name"] = _name(action.get("market_id"), action.get("symbol"))
+        return RunnerOut(**snap)
+
     @app.get("/api/v1/runner", response_model=RunnerOut)
     def runner_status() -> RunnerOut:
-        return RunnerOut(**runner.snapshot())
+        return _runner_out()
 
     @app.post("/api/v1/runner/start", response_model=RunnerOut)
     def runner_start() -> RunnerOut:
         runner.start_background()
-        return RunnerOut(**runner.snapshot())
+        return _runner_out()
 
     @app.post("/api/v1/runner/stop", response_model=RunnerOut)
     def runner_stop() -> RunnerOut:
         runner.stop()
-        return RunnerOut(**runner.snapshot())
+        return _runner_out()
 
     @app.post("/api/v1/runner/tick", response_model=RunnerOut)
     def runner_tick(
@@ -274,7 +300,7 @@ def create_app(
     ) -> RunnerOut:
         markets = (market,) if market else None
         runner.tick(markets=markets, force=force)
-        return RunnerOut(**runner.snapshot())
+        return _runner_out()
 
     @app.get("/api/v1/accounts", response_model=List[AccountOut])
     def accounts() -> List[AccountOut]:
@@ -300,6 +326,7 @@ def create_app(
                 order_id=t.order_id,
                 market_id=t.market_id,
                 symbol=t.symbol,
+                name=_name(t.market_id, t.symbol),
                 side=t.side,
                 quantity=t.quantity,
                 price=t.price,
@@ -315,6 +342,7 @@ def create_app(
             PositionOut(
                 market_id=p.market_id,
                 symbol=p.symbol,
+                name=_name(p.market_id, p.symbol),
                 quantity=p.quantity,
                 avg_cost=p.avg_cost,
             )

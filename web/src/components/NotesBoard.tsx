@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { instrumentLabel } from "../markets/display";
 import type { Note } from "../types";
 
 const NOTE_MAX = 4000;
@@ -69,7 +70,7 @@ export function NotesBoard({
                 <span>{n.created_at.replace("T", " ").slice(0, 19)}</span>
                 {n.symbol ? (
                   <span className="tag">
-                    {(n.market_id ?? "").toUpperCase()} {n.symbol}
+                    {(n.market_id ?? "").toUpperCase()} {instrumentLabel(n.market_id ?? "", n.symbol, n.name)}
                   </span>
                 ) : null}
                 <button type="button" className="ghost" onClick={() => onDelete(n.id)}>

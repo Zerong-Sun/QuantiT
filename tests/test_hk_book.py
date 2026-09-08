@@ -18,6 +18,7 @@ from quantit.strategy.hk_book import (
     equal_weight_index,
     invested_fraction,
     quality_sleeve,
+    sleeve_fraction,
     vol_scale,
 )
 
@@ -181,14 +182,77 @@ def test_universe_tuple_is_quality_book() -> None:
     assert "0005.HK" in HK_QUALITY
 
 
-def test_vol_scale_caps_at_one_and_shrinks_when_hot() -> None:
-    assert vol_scale(0.10, target_vol=0.15) == 1.0
+def test_vol_scale_levers_when_cold_and_shrinks_when_hot() -> None:
+    assert vol_scale(0.10, target_vol=0.15) == pytest.approx(1.5)
+    assert vol_scale(0.10, target_vol=0.15, max_leverage=1.0) == 1.0
     assert vol_scale(0.30, target_vol=0.15) == pytest.approx(0.5)
     assert vol_scale(None, target_vol=0.15) == 1.0
     assert vol_scale(float("nan"), target_vol=0.15) == 1.0
     assert vol_scale(float("inf"), target_vol=0.15) == 0.0
     assert vol_scale(0.30, target_vol=float("nan")) == 1.0
     assert vol_scale(0.30, target_vol=0.0) == 1.0
+
+
+def test_sleeve_stays_near_80_and_only_strong_mom_reaches_90() -> None:
+    weak = sleeve_fraction(
+        0.05,
+        0.08,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    strong = sleeve_fraction(
+        0.35,
+        0.08,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    off = sleeve_fraction(
+        -0.10,
+        0.08,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    assert weak == pytest.approx(0.90)
+    assert strong == pytest.approx(0.95)
+    assert off == pytest.approx(0.70)
+    assert off > 0.50
+
+
+def test_sleeve_defaults_cap_at_90_and_95() -> None:
+    weak = sleeve_fraction(
+        0.05,
+        0.08,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    strong = sleeve_fraction(
+        0.35,
+        0.08,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    assert weak == pytest.approx(0.90)
+    assert strong == pytest.approx(0.95)
 
 
 def test_high_realized_vol_holds_less_than_unscaled() -> None:
@@ -221,6 +285,8 @@ def test_high_realized_vol_holds_less_than_unscaled() -> None:
         vol_lookback=20,
         vol_floor=0.05,
         asof=asof,
+        max_leverage=1.0,
+        invested_strong=0.95,
     )
     frac_loose, _ = quality_sleeve(
         hot,
@@ -232,6 +298,8 @@ def test_high_realized_vol_holds_less_than_unscaled() -> None:
         vol_lookback=20,
         vol_floor=0.05,
         asof=asof,
+        max_leverage=1.0,
+        invested_strong=0.95,
     )
     assert mom is not None and mom > 0
     assert frac_loose == pytest.approx(0.95)
@@ -285,17 +353,21 @@ def test_catalog_exposes_quality_vol_params() -> None:
         entry = get_strategy(strategy_id)
         assert entry is not None
         names = {p["name"] for p in entry["parameters"]}
-        assert {"target_vol", "vol_lookback", "vol_floor", "weighting"} <= names
+        assert {"target_vol", "vol_lookback", "vol_floor", "weighting", "max_leverage", "invested_strong", "strong_mom"} <= names
 
 
-def test_hk_defaults_keep_target_vol_and_inv_vol() -> None:
+def test_hk_defaults_keep_target_vol_and_dual_mom() -> None:
     strat = HKQualityBookStrategy()
     assert strat.target_vol == pytest.approx(0.15)
-    assert strat.weighting == "inv_vol"
-    assert strat.risk_off_scale == pytest.approx(0.5)
+    assert strat.weighting == "dual_mom"
+    assert strat.invested_on == pytest.approx(0.90)
+    assert strat.invested_strong == pytest.approx(0.95)
+    assert strat.risk_off_scale == pytest.approx(0.70)
+    assert strat.max_leverage == pytest.approx(1.5)
     positional = HKQualityBookStrategy(252, 21, 0.5, 0.95, 0.02, 0.15, 20, 0.05, ("0002.HK", "0005.HK"))
     assert positional.universe == ("0002.HK", "0005.HK")
-    assert positional.weighting == "inv_vol"
+    assert positional.weighting == "dual_mom"
+    assert positional.invested_strong == pytest.approx(0.95)
 
 
 def test_inv_vol_weights_give_less_to_hot_name() -> None:
@@ -330,6 +402,30 @@ def test_inv_vol_inf_vol_gets_zero_weight() -> None:
         "B": pytest.approx(0.45),
     }
     assert inv_vol_weights(["A"], {"A": 0.2}, float("nan")) == {}
+
+
+def test_dual_mom_drops_negative_and_overweights_stronger() -> None:
+    from quantit.strategy.hk_book import dual_mom_weights
+
+    weights = dual_mom_weights(
+        ["A", "B", "C"],
+        {"A": 0.40, "B": 0.10, "C": -0.20},
+        {"A": 0.20, "B": 0.20, "C": 0.20},
+        sleeve=0.90,
+    )
+    assert "C" not in weights
+    assert weights["A"] > weights["B"]
+    assert sum(weights.values()) == pytest.approx(0.90)
+
+
+def test_dual_mom_all_negative_falls_back_to_inv_vol() -> None:
+    from quantit.strategy.hk_book import dual_mom_weights, inv_vol_weights
+
+    names = ["A", "B"]
+    vols = {"A": 0.10, "B": 0.40}
+    got = dual_mom_weights(names, {"A": -0.1, "B": -0.2}, vols, sleeve=0.80)
+    expect = inv_vol_weights(names, vols, sleeve=0.80)
+    assert got == expect
 
 
 def test_invalid_weighting_raises() -> None:

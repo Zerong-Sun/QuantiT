@@ -18,7 +18,7 @@ Hard rules:
 - `quantit.paper` / `strategy` / `markets` / `engine` do not import `closeloop`.
 - The only exception is `quantit/api/closeloop_bridge.py`, which starts a resident `LoopWorker` and books the isolated paper account `cl`.
 - Default universe is **CSI300 stocks**, not `510300` industry ETFs.
-- Factors are never auto-promoted into the US/HK/CN paper runner.
+- Factors are never auto-promoted into the US/HK/CN paper runner (including `us_book`, `hk_theme`, and `cn_etf`).
 
 ## Layout
 
@@ -48,6 +48,7 @@ Core tests run without `pyqlib` / AkShare (fixture panel). Those extras are for 
 closeloop ingest --universe csi300 --from-csv /path/to/csv_dir
 
 # Network CSI300 (resume via dest/raw/*.csv). Use --limit while iterating.
+# Writes ~/.quantit/closeloop/qlib_cn/panel.parquet. Optional; skip a full 300-name pull unless you want live cl orders.
 closeloop ingest --universe csi300 --start 2018-01-01 --end 2024-12-31 --limit 30
 
 closeloop --fixture validate --id 006

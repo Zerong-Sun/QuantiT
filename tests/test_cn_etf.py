@@ -259,7 +259,7 @@ regimes:
         assert len(scores) == n
         assert scores.notna().any().any()
 
-    def test_month_end_strategy_trades(self) -> None:
+    def test_strategy_trades(self) -> None:
         n = 80
         a = _ohlcv(n, "2020-01-01", 1.0)
         b = _ohlcv(n, "2020-01-01", 1.2)
@@ -298,9 +298,11 @@ class TestCatalogAndSignals:
         assert entry is not None
         assert "cn" in entry["markets"]
         assert "semis" in (entry.get("universe") or {})
+        assert entry["book_id"] == "cn_etf"
         quality = get_strategy("cn_quality_book")
         assert quality is not None
         assert "cn" in quality["markets"]
+        assert quality["book_id"] == "cn"
         assert "quality" in (quality.get("universe") or {})
 
     def test_evaluate_member_and_outsider(self) -> None:
@@ -381,7 +383,7 @@ class TestPaperCostsAndRunner:
         assert sell.status == "rejected"
         assert "t+1" in (sell.reject_reason or "").lower()
 
-    def test_runner_skips_non_month_end(self) -> None:
+    def test_runner_rebalances_mid_month(self) -> None:
         frames = {
             "510300.SS": _ohlcv(n=45, start="2024-05-01", start_price=3.5),
             "512480.SS": _ohlcv(n=45, start="2024-05-01", start_price=1.0),
@@ -394,11 +396,13 @@ class TestPaperCostsAndRunner:
             index=idx,
         )
         runner = PaperRunner(broker, us_watch=(), hk_warrants=(), hk_scores=None, cn_scores=scores)
-        actions = runner.tick()
-        cn_fills = [a for a in actions if a["market_id"] == "cn" and a["status"] == "filled"]
-        assert cn_fills == []
+        actions = runner.tick(markets=("cn_etf",))
+        cn_fills = [a for a in actions if a["market_id"] == "cn_etf" and a["status"] == "filled"]
+        assert cn_fills
+        again = runner.tick(markets=("cn_etf",))
+        assert [a for a in again if a["market_id"] == "cn_etf"] == []
 
-    def test_runner_rebalances_on_month_end_in_lots_of_100(self) -> None:
+    def test_runner_rebalances_in_lots_of_100(self) -> None:
         frames = {
             "510300.SS": _ohlcv(n=45, start="2024-05-01", start_price=3.5),
             "512480.SS": _ohlcv(n=45, start="2024-05-01", start_price=1.0),
@@ -412,11 +416,11 @@ class TestPaperCostsAndRunner:
             index=idx,
         )
         runner = PaperRunner(broker, us_watch=(), hk_warrants=(), hk_scores=None, cn_scores=scores)
-        actions = runner.tick()
-        cn_fills = [a for a in actions if a["market_id"] == "cn" and a["status"] == "filled"]
+        actions = runner.tick(markets=("cn_etf",))
+        cn_fills = [a for a in actions if a["market_id"] == "cn_etf" and a["status"] == "filled"]
         assert cn_fills
         for row in cn_fills:
             assert row["quantity"] % 100 == 0
         snap = runner.snapshot()
-        assert "cn" in snap["watchlists"]
-        assert "512480.SS" in snap["watchlists"]["cn"]
+        assert "cn_etf" in snap["watchlists"]
+        assert "512480.SS" in snap["watchlists"]["cn_etf"]

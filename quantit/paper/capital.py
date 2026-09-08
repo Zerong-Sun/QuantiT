@@ -2,16 +2,8 @@
 
 from __future__ import annotations
 
-from quantit.markets.assets import ALLOWED_ASSET_CLASSES
+from quantit.paper.books import PAPER_CASH
 from quantit.research.universes import US_QUALITY
-
-# Idle accounts are seeded (or rebased) to these notionals.
-PAPER_CASH: dict[str, float] = {
-    "us": 100_000.0,
-    "hk": 1_000_000.0,
-    "cn": 1_000_000.0,
-    "cl": 1_000_000.0,
-}
 
 # Paper US book follows the research quality pool (not the Nasdaq contrast list).
 US_WATCHLIST: tuple[str, ...] = US_QUALITY

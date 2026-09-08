@@ -99,6 +99,7 @@ class TestCatalog:
             "cn_quality_book",
             "theme_rotation",
             "cn_etf_rotation",
+            "closeloop",
         }
         ma = {p["name"]: p["value"] for p in by_id["ma_crossover"]["parameters"]}
         rsi = {p["name"]: p["value"] for p in by_id["rsi_mean_reversion"]["parameters"]}
@@ -112,9 +113,17 @@ class TestCatalog:
         assert theme["risk_off_invested"] == inspect.signature(ThemeRotationStrategy.__init__).parameters["risk_off_invested"].default
         assert set(by_id["theme_rotation"]["universe"]) == set(HSTECH_THEMES)
         assert by_id["ma_crossover"]["markets"] == ["us"]
+        assert by_id["ma_crossover"]["book_id"] == "us_book"
+        assert by_id["tsmom"]["book_id"] == "us"
+        assert by_id["hk_quality_book"]["book_id"] == "hk"
         assert by_id["theme_rotation"]["markets"] == ["hk"]
+        assert by_id["theme_rotation"]["book_id"] == "hk_theme"
         assert by_id["cn_etf_rotation"]["markets"] == ["cn"]
+        assert by_id["cn_etf_rotation"]["book_id"] == "cn_etf"
         assert by_id["cn_quality_book"]["markets"] == ["cn"]
+        assert by_id["cn_quality_book"]["book_id"] == "cn"
+        assert by_id["closeloop"]["book_id"] == "cl"
+        assert by_id["closeloop"]["markets"] == ["cl"]
 
     def test_api_lists_and_filters(self, client: TestClient) -> None:
         all_rows = client.get("/api/v1/strategies").json()
@@ -126,11 +135,18 @@ class TestCatalog:
             "cn_quality_book",
             "theme_rotation",
             "cn_etf_rotation",
+            "closeloop",
         }
         hk = client.get("/api/v1/strategies", params={"market": "hk"}).json()
         assert [r["id"] for r in hk] == ["hk_quality_book", "theme_rotation"]
+        theme_book = client.get("/api/v1/strategies", params={"market": "hk_theme"}).json()
+        assert any(r["id"] == "theme_rotation" for r in theme_book)
+        us_book = client.get("/api/v1/strategies", params={"market": "us_book"}).json()
+        assert {r["id"] for r in us_book} >= {"ma_crossover", "rsi_mean_reversion"}
         cn = client.get("/api/v1/strategies", params={"market": "cn"}).json()
         assert [r["id"] for r in cn] == ["cn_quality_book", "cn_etf_rotation"]
+        cl = client.get("/api/v1/strategies", params={"market": "cl"}).json()
+        assert [r["id"] for r in cl] == ["closeloop"]
         one = client.get("/api/v1/strategies/ma_crossover").json()
         assert one["class_name"] == "MACrossoverStrategy"
         missing = client.get("/api/v1/strategies/does-not-exist")

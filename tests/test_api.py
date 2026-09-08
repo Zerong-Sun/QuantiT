@@ -65,10 +65,20 @@ class TestMarketRoutes:
     def test_lists_registered_markets(self, client: TestClient) -> None:
         data = client.get("/api/v1/markets").json()
         ids = {m["id"] for m in data}
-        assert ids == {"us", "hk", "cn"}
+        assert {"us", "us_book", "hk", "hk_theme", "cn", "cn_etf"} <= ids
+        assert "cl" not in ids
         us = next(m for m in data if m["id"] == "us")
         assert us["currency"] == "USD"
         assert us["timezone"] == "America/New_York"
+        assert us["venue"] == "us"
+        assert us["strategy_id"] == "tsmom"
+        us_book = next(m for m in data if m["id"] == "us_book")
+        assert us_book["venue"] == "us"
+        assert us_book["strategy_id"] == "us_book"
+        hk_theme = next(m for m in data if m["id"] == "hk_theme")
+        assert hk_theme["venue"] == "hk"
+        cn_etf = next(m for m in data if m["id"] == "cn_etf")
+        assert cn_etf["venue"] == "cn"
 
     def test_search_and_instrument(self, client: TestClient) -> None:
         hits = client.get("/api/v1/search", params={"market": "us", "q": "aap"}).json()
@@ -76,6 +86,14 @@ class TestMarketRoutes:
         inst = client.get("/api/v1/instrument", params={"market": "us", "symbol": "aapl"}).json()
         assert inst["symbol"] == "AAPL"
         assert inst["lot_size"] == 1
+
+    def test_hk_and_cn_instrument_names(self, client: TestClient) -> None:
+        hk = client.get("/api/v1/instrument", params={"market": "hk", "symbol": "700"}).json()
+        assert hk["symbol"] == "0700.HK"
+        assert hk["name"] == "Tencent"
+        cn = client.get("/api/v1/instrument", params={"market": "cn", "symbol": "600519"}).json()
+        assert cn["symbol"] == "600519.SS"
+        assert cn["name"] == "Kweichow Moutai"
 
     def test_bars_and_quote(self, client: TestClient) -> None:
         bars = client.get(
@@ -98,11 +116,14 @@ class TestMarketRoutes:
 class TestTradingRoutes:
     def test_accounts_seeded(self, client: TestClient) -> None:
         accounts = client.get("/api/v1/accounts").json()
-        assert {a["market_id"] for a in accounts} == {"us", "hk", "cn"}
+        assert {a["market_id"] for a in accounts} == {"us", "us_book", "hk", "hk_theme", "cn", "cn_etf"}
         by_id = {a["market_id"]: a for a in accounts}
         assert by_id["us"]["cash"] == pytest.approx(100_000)
+        assert by_id["us_book"]["cash"] == pytest.approx(100_000)
         assert by_id["hk"]["cash"] == pytest.approx(1_000_000)
+        assert by_id["hk_theme"]["cash"] == pytest.approx(1_000_000)
         assert by_id["cn"]["cash"] == pytest.approx(1_000_000)
+        assert by_id["cn_etf"]["cash"] == pytest.approx(1_000_000)
 
     def test_place_order_and_blotter(self, client: TestClient) -> None:
         resp = client.post(
@@ -119,6 +140,18 @@ class TestTradingRoutes:
         assert len(trades) == 1
         orders = client.get("/api/v1/orders").json()
         assert orders[0]["id"] == body["id"]
+
+    def test_hk_blotter_includes_company_name(self, client: TestClient) -> None:
+        resp = client.post(
+            "/api/v1/orders",
+            json={"market": "hk", "symbol": "0700.HK", "side": "buy", "quantity": 100},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Tencent"
+        positions = client.get("/api/v1/positions").json()
+        assert positions[0]["name"] == "Tencent"
+        trades = client.get("/api/v1/trades").json()
+        assert trades[0]["name"] == "Tencent"
 
     def test_unknown_market_404(self, client: TestClient) -> None:
         resp = client.get("/api/v1/quote", params={"market": "jp", "symbol": "7203"})

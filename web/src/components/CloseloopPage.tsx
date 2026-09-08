@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ResizableCard } from "./ResizableCard";
+import { instrumentLabel } from "../markets/display";
 import type { CloseloopLibraryRow, CloseloopStatus, CloseloopTraceRow, Position } from "../types";
 
 const POLL_MS = 15_000;
@@ -154,7 +155,7 @@ export function CloseloopPage() {
                 <tr><td colSpan={3}>Flat. Orders only when source is qlib_dump and gates pass.</td></tr>
               ) : positions.map((p) => (
                 <tr key={`${p.market_id}-${p.symbol}`}>
-                  <td>{p.symbol}</td>
+                  <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>
                   <td>{p.quantity}</td>
                   <td>{fmt(p.avg_cost)}</td>
                 </tr>

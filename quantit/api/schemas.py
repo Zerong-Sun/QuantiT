@@ -19,6 +19,9 @@ class MarketOut(BaseModel):
     t_plus: int
     intervals: List[str]
     allowed_asset_classes: List[str] = Field(default_factory=list)
+    venue: str = ""
+    strategy_id: str = ""
+    label: str = ""
 
 
 class InstrumentOut(BaseModel):
@@ -69,6 +72,7 @@ class OrderOut(BaseModel):
     id: int
     market_id: str
     symbol: str
+    name: str = ""
     side: str
     quantity: int
     status: str
@@ -85,6 +89,7 @@ class TradeOut(BaseModel):
     order_id: int
     market_id: str
     symbol: str
+    name: str = ""
     side: str
     quantity: int
     price: float
@@ -95,6 +100,7 @@ class TradeOut(BaseModel):
 class PositionOut(BaseModel):
     market_id: str
     symbol: str
+    name: str = ""
     quantity: int
     avg_cost: float
 
@@ -130,6 +136,7 @@ class StrategyOut(BaseModel):
     parameters: List[StrategyParamOut]
     universe: Optional[dict] = None
     score_weights: Optional[dict] = None
+    book_id: Optional[str] = None
 
 
 class SignalOut(BaseModel):
@@ -160,6 +167,7 @@ class NoteOut(BaseModel):
     body: str
     market_id: Optional[str] = None
     symbol: Optional[str] = None
+    name: str = ""
     created_at: datetime
 
 
@@ -167,6 +175,7 @@ class RunnerActionOut(BaseModel):
     time: Optional[str] = None
     market_id: str
     symbol: str
+    name: str = ""
     side: str
     quantity: int
     status: str
@@ -189,6 +198,7 @@ class RunnerOut(BaseModel):
 class PortfolioPositionOut(BaseModel):
     market_id: str
     symbol: str
+    name: str = ""
     quantity: int
     avg_cost: float
     last: Optional[float] = None

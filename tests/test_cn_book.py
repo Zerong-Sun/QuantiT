@@ -40,8 +40,9 @@ def test_universe_defaults_to_cn_quality() -> None:
     strat = CNQualityBookStrategy()
     assert strat.universe == CN_QUALITY
     assert strat.target_vol == pytest.approx(0.30)
-    assert strat.weighting == "inv_vol"
-    assert strat.risk_off_scale == pytest.approx(0.5)
+    assert strat.weighting == "dual_mom"
+    assert strat.invested_on == pytest.approx(0.90)
+    assert strat.risk_off_scale == pytest.approx(0.70)
 
 
 def test_catalog_cn_default_target_vol_is_higher_than_hk() -> None:

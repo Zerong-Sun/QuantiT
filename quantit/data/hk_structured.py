@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from quantit.data.provider import DataProvider, YahooFinanceProvider
+from quantit.data.provider import DataProvider, FailoverProvider, YahooFinanceProvider
 from quantit.markets.assets import asset_class
 
 _EM_KLINE = (
@@ -17,6 +17,11 @@ _EM_KLINE = (
     "&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
     "&klt=101&fqt=1&lmt=800&end=20500000"
 )
+
+# Eastmoney only returns the latest ~800 sessions. If a request starts earlier than
+# the served history (plus a pad), treat it as uncovered so a FailoverProvider hands
+# the long window (e.g. 2012 walk-forward research) to Yahoo.
+_COVERAGE_PAD_DAYS = 10
 
 
 def parse_eastmoney_klines(klines: list[str]) -> pd.DataFrame:
@@ -54,7 +59,8 @@ class EastmoneyHKStructuredProvider(DataProvider):
     ) -> pd.DataFrame:
         if interval != "1d":
             raise ValueError(f"HK structured products only support 1d bars, got {interval!r}")
-        code = symbol.split(".")[0].lstrip("0") or "0"
+        digits = symbol.split(".")[0]
+        code = f"{int(digits):05d}" if digits.isdigit() else digits
         url = _EM_KLINE.format(code=code)
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 QuantiT"})
         try:
@@ -72,18 +78,33 @@ class EastmoneyHKStructuredProvider(DataProvider):
         df = df[(df.index >= start_ts) & (df.index < end_ts)]
         if df.empty:
             raise ValueError(f"No data returned for {symbol} ({start} to {end})")
+        if df.index.min() > start_ts + pd.Timedelta(days=_COVERAGE_PAD_DAYS):
+            raise ValueError(
+                f"{symbol}: Eastmoney history starts {df.index.min().date()}, "
+                f"does not cover {start_ts.date()}"
+            )
         return df
 
 
+class EastmoneyHKProvider(EastmoneyHKStructuredProvider):
+    """Daily OHLCV for any HK symbol (equity, ETF, or warrant) via Eastmoney.
+
+    Preferred over Yahoo for HK because it is not rate-limited; long windows
+    raise so a FailoverProvider can send them to Yahoo.
+    """
+
+
 class HKMarketProvider(DataProvider):
-    """Yahoo for equities/ETFs; Eastmoney for 5-digit warrants/CBBCs."""
+    """Eastmoney→Yahoo for equities/ETFs; Eastmoney for 5-digit warrants/CBBCs."""
 
     def __init__(
         self,
         equity: DataProvider | None = None,
         structured: DataProvider | None = None,
     ) -> None:
-        self.equity = equity or YahooFinanceProvider()
+        if equity is None:
+            equity = FailoverProvider(EastmoneyHKProvider(), YahooFinanceProvider())
+        self.equity = equity
         self.structured = structured or EastmoneyHKStructuredProvider()
 
     def fetch(

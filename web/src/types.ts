@@ -9,6 +9,9 @@ export interface Market {
   t_plus: number;
   intervals: string[];
   allowed_asset_classes: string[];
+  venue?: string;
+  strategy_id?: string;
+  label?: string;
 }
 
 export interface Instrument {
@@ -57,6 +60,7 @@ export interface Account {
 export interface Position {
   market_id: MarketId;
   symbol: string;
+  name?: string;
   quantity: number;
   avg_cost: number;
 }
@@ -65,6 +69,7 @@ export interface Order {
   id: number;
   market_id: MarketId;
   symbol: string;
+  name?: string;
   side: string;
   quantity: number;
   status: string;
@@ -81,6 +86,7 @@ export interface Trade {
   order_id: number;
   market_id: MarketId;
   symbol: string;
+  name?: string;
   side: string;
   quantity: number;
   price: number;
@@ -112,6 +118,7 @@ export interface Strategy {
   parameters: StrategyParam[];
   universe: Record<string, StrategyMember[]> | null;
   score_weights: Record<string, number> | null;
+  book_id?: string | null;
 }
 
 export interface Signal {
@@ -136,6 +143,7 @@ export interface Note {
   body: string;
   market_id: string | null;
   symbol: string | null;
+  name?: string;
   created_at: string;
 }
 
@@ -143,6 +151,7 @@ export interface RunnerAction {
   time: string | null;
   market_id: string;
   symbol: string;
+  name?: string;
   side: string;
   quantity: number;
   status: string;
@@ -165,6 +174,7 @@ export interface Runner {
 export interface PortfolioPosition {
   market_id: MarketId;
   symbol: string;
+  name?: string;
   quantity: number;
   avg_cost: number;
   last: number | null;

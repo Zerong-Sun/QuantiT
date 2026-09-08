@@ -17,7 +17,7 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    market_id: Mapped[str] = mapped_column(String(8), unique=True, index=True)
+    market_id: Mapped[str] = mapped_column(String(16), unique=True, index=True)
     currency: Mapped[str] = mapped_column(String(8))
     cash: Mapped[float] = mapped_column(Float)
     initial_cash: Mapped[float] = mapped_column(Float)
@@ -32,7 +32,7 @@ class Position(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-    market_id: Mapped[str] = mapped_column(String(8), index=True)
+    market_id: Mapped[str] = mapped_column(String(16), index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     quantity: Mapped[int] = mapped_column(Integer, default=0)
     avg_cost: Mapped[float] = mapped_column(Float, default=0.0)
@@ -59,7 +59,7 @@ class Order(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-    market_id: Mapped[str] = mapped_column(String(8), index=True)
+    market_id: Mapped[str] = mapped_column(String(16), index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     side: Mapped[str] = mapped_column(String(8))
     quantity: Mapped[int] = mapped_column(Integer)
@@ -81,7 +81,7 @@ class Trade(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id"))
-    market_id: Mapped[str] = mapped_column(String(8), index=True)
+    market_id: Mapped[str] = mapped_column(String(16), index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True)
     side: Mapped[str] = mapped_column(String(8))
     quantity: Mapped[int] = mapped_column(Integer)
@@ -98,6 +98,6 @@ class Note(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     body: Mapped[str] = mapped_column(Text)
-    market_id: Mapped[Optional[str]] = mapped_column(String(8), nullable=True, index=True)
+    market_id: Mapped[Optional[str]] = mapped_column(String(16), nullable=True, index=True)
     symbol: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime)

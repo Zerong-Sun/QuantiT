@@ -40,8 +40,11 @@ PARAM_HELP: dict[str, str] = {
     "max_position_pct": "Cap on equity deployed in the name.",
     "rebalance_band": "Ignore size changes smaller than this fraction of the current position.",
     "risk_off_scale": "When momentum is off, hold this fraction of the risk-on sleeve.",
-    "invested_on": "Equity fraction in the book when basket momentum is positive.",
-    "weighting": "Inside the sleeve: inv_vol (vol-parity) or equal (1/n).",
+    "invested_on": "Typical equity fraction when basket momentum is positive (~90%).",
+    "invested_strong": "Book cap when skipped-lookback momentum is at least strong_mom (~95%).",
+    "strong_mom": "Momentum hurdle (e.g. 0.20 = +20%) to use invested_strong instead of invested_on.",
+    "max_leverage": "Cap on target_vol / realized_vol; may exceed 1 (leverage).",
+    "weighting": "Inside the sleeve: dual_mom (absolute+relative), inv_vol (vol-parity), or equal (1/n).",
 }
 
 
@@ -91,6 +94,7 @@ def _ma_entry() -> dict[str, Any]:
         "name": "MA Crossover",
         "class_name": MACrossoverStrategy.__name__,
         "markets": ["us"],
+        "book_id": "us_book",
         "horizon": "Daily, single-name",
         "summary": inspect.getdoc(MACrossoverStrategy) or "",
         "thesis": (
@@ -104,6 +108,7 @@ def _ma_entry() -> dict[str, Any]:
             "When the trend is down, this card yields to RSI mean reversion so the two rules do not share a slot.",
             "Paper fills at the delayed last print. Backtests still fill on the next bar's open unless configured otherwise.",
             "Paper runner also buys a 21–90 DTE ATM call overlay (~5% of US seed) on a buy, and closes those calls on a sell.",
+            "Live on the us_book account; the US quality TSMOM book does not share this cash or overlay.",
         ],
         "parameters": _params(MACrossoverStrategy),
         "universe": None,
@@ -117,6 +122,7 @@ def _rsi_entry() -> dict[str, Any]:
         "name": "RSI Mean Reversion",
         "class_name": RSIMeanReversionStrategy.__name__,
         "markets": ["us"],
+        "book_id": "us_book",
         "horizon": "Daily, single-name",
         "summary": inspect.getdoc(RSIMeanReversionStrategy) or "",
         "thesis": (
@@ -141,6 +147,7 @@ def _theme_entry() -> dict[str, Any]:
         "name": "HK Tech Theme Rotation",
         "class_name": ThemeRotationStrategy.__name__,
         "markets": ["hk"],
+        "book_id": "hk_theme",
         "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(ThemeRotationStrategy) or "",
         "thesis": (
@@ -157,6 +164,7 @@ def _theme_entry() -> dict[str, Any]:
             "Spread each theme's weight equally across members that have a quote that day.",
             "If a name cannot fill one board lot at this book size, its weight goes to 3033.HK (Hang Seng TECH ETF) or stays cash.",
             "Separately, the paper runner applies the same daily trend/RSI book to a 5-digit warrant/CBBC watchlist (~5% of HK seed per name).",
+            "Live on the hk_theme account; HK quality TSMOM does not share this cash or the warrant overlay.",
         ],
         "parameters": _params(ThemeRotationStrategy, skip=frozenset({"scores", "themes"})),
         "universe": _theme_universe(),
@@ -186,6 +194,7 @@ def _hk_quality_entry() -> dict[str, Any]:
         "name": "HK Quality Basket TSMOM",
         "class_name": HKQualityBookStrategy.__name__,
         "markets": ["hk"],
+        "book_id": "hk",
         "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(HKQualityBookStrategy) or "",
         "thesis": (
@@ -196,10 +205,10 @@ def _hk_quality_entry() -> dict[str, Any]:
         "rules": [
             "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on, then shrink by vol_scale vs target_vol (never lever).",
-            "If momentum ≤ 0, invest risk_off_scale (0 means cash), then apply the same vol_scale.",
-            "Split the sleeve by inverse-vol (weighting=equal for 1/n). Names that cannot fill one board lot stay out; residual is cash, not 3033.HK.",
-            "Paper runner uses this card only after a walk-forward promote with hk_primary: hk_quality_book.",
+            "If momentum > 0, target invested_on (~90%). Vol scale may lever up, but only a strong signal (momentum ≥ strong_mom) may fill to invested_strong (~95%). Always leave cash.",
+            "If momentum ≤ 0, hold risk_off_scale of equity (not forced to half-cash), then apply the same vol scale without the 95% cap.",
+            "Split the sleeve by dual momentum (positive own-price names, relative + inv-vol). weighting=inv_vol or equal to disable. Names that cannot fill one board lot stay out; residual is cash, not 3033.HK.",
+            "Paper runner books this card on the hk account (separate from Hang Seng TECH rotation).",
         ],
         "parameters": _params(HKQualityBookStrategy, skip=frozenset({"universe"})),
         "universe": _hk_quality_universe(),
@@ -213,6 +222,7 @@ def _cn_quality_entry() -> dict[str, Any]:
         "name": "CN Quality Basket TSMOM",
         "class_name": CNQualityBookStrategy.__name__,
         "markets": ["cn"],
+        "book_id": "cn",
         "horizon": "Daily, multi-asset",
         "summary": inspect.getdoc(CNQualityBookStrategy) or "",
         "thesis": (
@@ -223,10 +233,10 @@ def _cn_quality_entry() -> dict[str, Any]:
         "rules": [
             "Rebalance each session (paper: at most once per calendar day). Skip a name if the qty change vs current is within turnover_band.",
             "Momentum = skipped lookback return of the equal-weight close index.",
-            "If momentum > 0, invest invested_on, then shrink by vol_scale vs target_vol (never lever). CN default target_vol is 0.30.",
-            "If momentum ≤ 0, invest risk_off_scale (0 means cash), then apply the same vol_scale. Do not raise risk_off_scale.",
-            "Split the sleeve by inverse-vol (weighting=equal for 1/n). Names that cannot fill one 100-share lot stay out; residual is cash, not 510300.SS.",
-            "Paper runner uses this card only after a walk-forward promote with cn_primary: cn_quality_book.",
+            "If momentum > 0, target invested_on (~90%). Vol scale may lever up; only strong momentum fills to invested_strong (~95%). CN default target_vol is 0.30.",
+            "If momentum ≤ 0, hold risk_off_scale of equity (not forced to half-cash), then apply the same vol scale.",
+            "Split the sleeve by dual momentum (weighting=inv_vol or equal to disable). Names that cannot fill one 100-share lot stay out; residual is cash, not 510300.SS.",
+            "Paper runner books this card on the cn account (separate from industry-ETF rotation).",
         ],
         "parameters": _params(CNQualityBookStrategy, skip=frozenset({"universe"})),
         "universe": _cn_quality_universe(),
@@ -240,6 +250,7 @@ def _cn_etf_entry() -> dict[str, Any]:
         "name": "CN Industry ETF Rotation",
         "class_name": ThemeRotationStrategy.__name__,
         "markets": ["cn"],
+        "book_id": "cn_etf",
         "horizon": "Daily, multi-asset",
         "summary": (
             "Allocate onshore A-share industry ETFs from precomputed regime scores. "
@@ -260,6 +271,7 @@ def _cn_etf_entry() -> dict[str, Any]:
             "Spread each theme's weight equally across members that have a quote that day.",
             "If a name cannot fill one 100-share lot at this book size, its weight goes to 510300.SS (CSI 300 ETF) or stays cash.",
             "Onshore ETFs are stamp-duty exempt; T+1 still applies.",
+            "Live on the cn_etf account (research OOS failed; isolated so it cannot damage the CN quality book).",
         ],
         "parameters": _params(ThemeRotationStrategy, skip=frozenset({"scores", "themes"})),
         "universe": _cn_etf_universe(),
@@ -277,6 +289,7 @@ def _tsmom_entry() -> dict[str, Any]:
         "name": "Time-Series Momentum",
         "class_name": TSMOMStrategy.__name__,
         "markets": ["us"],
+        "book_id": "us",
         "horizon": "Daily, single-name",
         "summary": inspect.getdoc(TSMOMStrategy) or "",
         "thesis": (
@@ -289,9 +302,38 @@ def _tsmom_entry() -> dict[str, Any]:
             "If momentum > 0, size so notional vol ≈ target_vol, capped by max_position_pct.",
             "If momentum ≤ 0, sell all and stay cash.",
             "Resize when the target quantity moves by more than rebalance_band.",
-            "Paper runner uses this card only after a walk-forward promote with us_primary: tsmom.",
+            "Paper runner books this card on the us quality account (MA/RSI live on us_book).",
         ],
         "parameters": _params(TSMOMStrategy),
+        "universe": None,
+        "score_weights": None,
+    }
+
+
+def _closeloop_entry() -> dict[str, Any]:
+    return {
+        "id": "closeloop",
+        "name": "Closeloop CSI300 Alpha101",
+        "class_name": "LoopWorker",
+        "markets": ["cl"],
+        "book_id": "cl",
+        "horizon": "Daily, CSI300 cross-section",
+        "summary": (
+            "Research loop over Alpha101 factors on a CSI300 dump. "
+            "The first factor that passes IC/IR gates each day books a top-5 equal-weight sleeve on cl."
+        ),
+        "thesis": (
+            "Isolated A-share research book. Factors are validated on the Qlib-shaped dump, "
+            "never auto-promoted onto US/HK/CN paper cash."
+        ),
+        "rules": [
+            "Requires ~/.quantit/closeloop/qlib_cn/panel.parquet (closeloop ingest). Fixture mode does not place orders.",
+            "Each background step evaluates the next Alpha101 spec against IC mean, IC IR, and quantile-spread gates.",
+            "The first passing factor of the calendar day becomes a long-only top-5 equal-weight TargetBook.",
+            "Fills use dump last close plus cl venue slippage/commission. T+1. Lots of 100.",
+            "Live on the cl account only.",
+        ],
+        "parameters": [],
         "universe": None,
         "score_weights": None,
     }
@@ -305,14 +347,22 @@ _BUILDERS: dict[str, Callable[[], dict[str, Any]]] = {
     "cn_quality_book": _cn_quality_entry,
     "theme_rotation": _theme_entry,
     "cn_etf_rotation": _cn_etf_entry,
+    "closeloop": _closeloop_entry,
 }
 
 
 def list_strategies(market: str | None = None) -> list[dict[str, Any]]:
-    """Return catalog entries, optionally filtered by market id."""
+    """Return catalog entries, optionally filtered by market or book id."""
+    from quantit.paper.books import venue_of
+
     entries = [builder() for builder in _BUILDERS.values()]
     if market:
-        entries = [e for e in entries if market in e["markets"]]
+        venue = venue_of(market)
+        entries = [
+            e
+            for e in entries
+            if venue in e["markets"] or market in e["markets"] or e.get("book_id") == market
+        ]
     return entries
 
 

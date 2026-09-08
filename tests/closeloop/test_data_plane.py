@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from closeloop.data.fixture import FixtureDataPlane
-from closeloop.data.ingest import ingest
+from closeloop.data.ingest import csi300_code_column, ingest
 from closeloop.data.protocol import field_frame
 from closeloop.data.qlib_cn import QlibCnDataPlane
 
@@ -98,6 +98,12 @@ def test_qlib_features_preferred_when_calendars_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(QlibCnDataPlane, "_load_via_qlib", _fake)
     loaded = QlibCnDataPlane(data_dir=dest, prefer_qlib=True).load_panel("2020-01-02", "2020-12-31")
     assert (field_frame(loaded, "close") == 99.0).all().all()
+
+
+def test_csi300_code_column_skips_index_code():
+    cols = ["日期", "指数代码", "指数名称", "成分券代码", "成分券名称", "交易所"]
+    assert csi300_code_column(cols) == "成分券代码"
+    assert csi300_code_column(["code", "name"]) == "code"
 
 
 @pytest.mark.network

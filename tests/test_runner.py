@@ -100,8 +100,11 @@ class TestSeedCash:
         broker.ensure_accounts()
         cash = {a.market_id: a.cash for a in broker.list_accounts()}
         assert cash["us"] == PAPER_CASH["us"]
+        assert cash["us_book"] == PAPER_CASH["us_book"]
         assert cash["hk"] == PAPER_CASH["hk"]
+        assert cash["hk_theme"] == PAPER_CASH["hk_theme"]
         assert cash["cn"] == PAPER_CASH["cn"]
+        assert cash["cn_etf"] == PAPER_CASH["cn_etf"]
 
     def test_cl_seed_on_isolated_registry(self) -> None:
         from quantit.markets.cl import CLAdapter
@@ -279,7 +282,9 @@ class TestRunner:
         runner = PaperRunner(broker, us_watch=(), hk_warrants=("14993.HK",), hk_scores=None)
         first = runner.tick()
         buys = [a for a in first if a["side"] == "buy" and a["status"] == "filled"]
-        assert any(a["symbol"] == "14993.HK" for a in buys)
+        assert any(a["symbol"] == "14993.HK" and a["market_id"] == "hk_theme" for a in buys)
+        assert broker.get_position("hk_theme", "14993.HK") is not None
+        assert broker.get_position("hk", "14993.HK") is None
 
     def test_hk_rotation_rebalances_mid_month_once(self) -> None:
         n = 130
@@ -313,14 +318,14 @@ class TestRunner:
             hk_warrants=(),
             hk_scores=scores,
         )
-        first = runner.tick(markets=("hk",), force=False)
-        filled = [a for a in first if a["status"] == "filled" and a["market_id"] == "hk"]
+        first = runner.tick(markets=("hk_theme",), force=False)
+        filled = [a for a in first if a["status"] == "filled" and a["market_id"] == "hk_theme"]
         assert filled
-        assert broker.get_position("hk", "0700.HK") is not None
-        skipped = runner.tick(markets=("hk",), force=False)
+        assert broker.get_position("hk_theme", "0700.HK") is not None
+        skipped = runner.tick(markets=("hk_theme",), force=False)
         assert skipped == []
-        forced = runner.tick(markets=("hk",), force=True)
-        assert all(a.get("market_id") != "hk" or "manual" in (a.get("rationale") or "") for a in forced)
+        forced = runner.tick(markets=("hk_theme",), force=True)
+        assert all(a.get("market_id") != "hk_theme" or "manual" in (a.get("rationale") or "") for a in forced)
 
     def test_tsmom_primary_buys_uptrend(self) -> None:
         from quantit.research.params import write_active_params
@@ -491,6 +496,64 @@ class TestRunner:
         bought = {a["symbol"] for a in filled if a["side"] == "buy" and a["status"] == "filled"}
         assert bought & set(HK_QUALITY)
         assert "0700.HK" not in bought
+
+    def test_quality_and_theme_tick_on_separate_books(self) -> None:
+        from quantit.research.params import write_active_params
+        from quantit.research.universes import HK_QUALITY
+
+        write_active_params(
+            {
+                "hk_primary": "hk_quality_book",
+                "strategies": {
+                    "hk_quality_book": {
+                        "lookback": 40,
+                        "skip": 5,
+                        "risk_off_scale": 0.5,
+                        "invested_on": 0.95,
+                    }
+                },
+            }
+        )
+        n = 80
+        frames = {
+            "AAPL": _ohlcv(n=n, start_price=150.0),
+            "0700.HK": _ohlcv(n=n, start_price=300.0),
+            "1810.HK": _ohlcv(n=n, start_price=20.0),
+            "2800.HK": _ohlcv(n=n, start_price=20.0),
+            "3033.HK": _ohlcv(n=n, start_price=5.0),
+            "600519.SS": _ohlcv(n=n, start_price=10.0, step=0.05),
+        }
+        for sym in HK_QUALITY:
+            frames[sym] = _ohlcv(n=n, start_price=50.0, step=0.4)
+        idx = frames["0700.HK"].index
+        scores = pd.DataFrame(
+            {
+                "platforms": [1.0] * n,
+                "hardware": [0.4] * n,
+                "semis": [0.2] * n,
+                "ev": [0.1] * n,
+            },
+            index=idx,
+        )
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(
+            session, registry=_registry(frames), now=lambda: datetime(2024, 6, 10, 10, 0, 0)
+        )
+        broker.ensure_accounts()
+        runner = PaperRunner(
+            broker,
+            us_watch=(),
+            hk_etfs=("2800.HK", "3033.HK"),
+            hk_warrants=(),
+            hk_scores=scores,
+        )
+        filled = runner.tick(force=True)
+        quality = {a["symbol"] for a in filled if a["market_id"] == "hk" and a["status"] == "filled"}
+        theme = {a["symbol"] for a in filled if a["market_id"] == "hk_theme" and a["status"] == "filled"}
+        assert quality & set(HK_QUALITY)
+        assert "0700.HK" in theme
+        assert broker.get_position("hk", "0700.HK") is None
+        assert broker.get_position("hk_theme", "0700.HK") is not None
 
     def test_hk_quality_paper_overweights_calm_name(self) -> None:
         from quantit.research.params import write_active_params

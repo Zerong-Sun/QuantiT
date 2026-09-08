@@ -24,6 +24,15 @@ US_UNIVERSE: dict[str, str] = {
     "META": "Meta",
     "TSLA": "Tesla",
     "JPM": "JPMorgan",
+    "JNJ": "Johnson & Johnson",
+    "PG": "Procter & Gamble",
+    "KO": "Coca-Cola",
+    "UNH": "UnitedHealth",
+    "HON": "Honeywell",
+    "CAT": "Caterpillar",
+    "WMT": "Walmart",
+    "CVX": "Chevron",
+    "AXP": "American Express",
     "SPY": "SPDR S&P 500",
     "QQQ": "Invesco QQQ",
     "IWM": "iShares Russell 2000",
@@ -41,6 +50,15 @@ class USAdapter(MarketAdapter):
     timezone = "America/New_York"
     session_hours = "09:30-16:00 ET"
     t_plus = 0
+
+    def default_provider(self):
+        from quantit.data.polygon_aggs import PolygonDailyProvider
+        from quantit.data.provider import FailoverProvider, YahooFinanceProvider
+
+        # Polygon free tier: US daily bars (~2y, 5 req/min). Yahoo keeps
+        # walk-forward history and absorbs 429s. Finnhub candles stay unused:
+        # the free plan 403s /stock/candle.
+        return FailoverProvider(PolygonDailyProvider(), YahooFinanceProvider())
 
     def normalize_symbol(self, raw: str) -> str:
         return raw.strip().upper()

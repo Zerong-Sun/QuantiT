@@ -3,6 +3,7 @@ import { api } from "../api";
 import { BarChart, DonutChart, colorAt } from "./AllocationCharts";
 import { ResizableCard } from "./ResizableCard";
 import { marketUi } from "../markets/config";
+import { instrumentLabel } from "../markets/display";
 import type { PortfolioBook, PortfolioOverview } from "../types";
 
 function fmt(n: number | null | undefined, digits = 2): string {
@@ -62,7 +63,7 @@ export function PortfolioPage() {
   const slices = rows
     .filter((p) => p.market_value > 0)
     .map((p, i) => ({
-      label: p.symbol,
+      label: instrumentLabel(p.market_id, p.symbol, p.name),
       value: p.market_value,
       color: colorAt(i),
     }));
@@ -160,7 +161,7 @@ export function PortfolioPage() {
               <tr><td colSpan={8}>No positions</td></tr>
             ) : rows.map((p) => (
               <tr key={`${p.market_id}-${p.symbol}`}>
-                <td>{p.symbol}</td>
+                <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>
                 <td>{p.quantity}</td>
                 <td>{fmt(p.last)}</td>
                 <td>{fmt(p.avg_cost)}</td>

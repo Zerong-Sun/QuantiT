@@ -162,6 +162,36 @@ def _to_qlib_symbol(code: str) -> str:
     return f"SZ{digits}"
 
 
+def _akshare_call(fn, *args, attempts: int = 10, **kwargs):
+    import time
+
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:  # Eastmoney often drops the first few sockets
+            last = exc
+            time.sleep(2.0 * (i + 1))
+    raise last  # type: ignore[misc]
+
+
+def csi300_code_column(columns) -> str:
+    """Pick the constituent ticker column, never the index code (000300)."""
+    ranked: list[str] = []
+    for col in columns:
+        text = str(col)
+        lower = text.lower().replace(" ", "")
+        if "成分券代码" in text or lower in {"constituent_code", "concode", "stockcode"}:
+            return col
+        if "指数" in text:
+            continue
+        if "代码" in text or lower == "code":
+            ranked.append(col)
+    if ranked:
+        return ranked[0]
+    raise RuntimeError(f"unexpected CSI300 columns: {list(columns)}")
+
+
 def fetch_csi300_panel(
     start: str,
     end: str,
@@ -175,37 +205,41 @@ def fetch_csi300_panel(
 
     import akshare as ak
 
-    cons = ak.index_stock_cons_csindex(symbol="000300")
-    code_col = None
-    for col in cons.columns:
-        text = str(col)
-        if "代码" in text or str(col).lower() == "code":
-            code_col = col
-            break
-    if code_col is None:
-        raise RuntimeError(f"unexpected CSI300 columns: {list(cons.columns)}")
+    cons = _akshare_call(ak.index_stock_cons_csindex, symbol="000300")
+    code_col = csi300_code_column(cons.columns)
     start_n = start.replace("-", "")
     end_n = end.replace("-", "")
-    codes = list(cons[code_col].astype(str))
+    codes = []
+    seen: set[str] = set()
+    for raw in cons[code_col].astype(str):
+        digits = "".join(ch for ch in raw if ch.isdigit())[-6:].zfill(6)
+        if digits in seen or digits == "000300":
+            continue
+        seen.add(digits)
+        codes.append(digits)
     if limit is not None:
         codes = codes[: max(1, int(limit))]
     if raw_dir is not None:
         Path(raw_dir).mkdir(parents=True, exist_ok=True)
     fields: dict[str, dict[str, pd.Series]] = {f: {} for f in DEFAULT_FIELDS}
-    for i, code in enumerate(codes):
-        digits = "".join(ch for ch in str(code) if ch.isdigit())[-6:].zfill(6)
+    n_ok = 0
+    for i, digits in enumerate(codes):
         symbol = _to_qlib_symbol(digits)
         cache = Path(raw_dir) / f"{symbol}.csv" if raw_dir is not None else None
         if cache is not None and cache.exists():
             bar = read_symbol_csv(cache)
         else:
-            hist = ak.stock_zh_a_hist(
-                symbol=digits,
-                period="daily",
-                start_date=start_n,
-                end_date=end_n,
-                adjust="qfq",
-            )
+            try:
+                hist = _akshare_call(
+                    ak.stock_zh_a_hist,
+                    symbol=digits,
+                    period="daily",
+                    start_date=start_n,
+                    end_date=end_n,
+                    adjust="qfq",
+                )
+            except Exception:
+                continue
             if hist is None or hist.empty:
                 continue
             bar = _frame_from_table(hist)
@@ -217,7 +251,9 @@ def fetch_csi300_panel(
         for field in DEFAULT_FIELDS:
             if field in bar.columns:
                 fields[field][symbol] = bar[field]
-        _ = i
+        n_ok += 1
+        if (i + 1) % 10 == 0 or i + 1 == len(codes):
+            print(f"csi300 ingest {i + 1}/{len(codes)} kept={n_ok} last={symbol}", flush=True)
     packed = {name: pd.DataFrame(cols).sort_index() for name, cols in fields.items() if cols}
     if not packed or "close" not in packed:
         raise RuntimeError("AkShare returned no CSI300 bars")

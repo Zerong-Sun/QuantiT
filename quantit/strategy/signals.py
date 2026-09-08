@@ -271,12 +271,12 @@ def hk_quality_signal(symbol: str) -> dict[str, Any]:
         out["action"] = "hold"
         out["reason"] = (
             f"{symbol} is outside the HK quality book "
-            "(operating blue chips, not Hang Seng TECH). No monthly sleeve weight."
+            "(operating blue chips, not Hang Seng TECH). No sleeve weight."
         )
         return out
     out["reason"] = (
         f"{symbol} ({HK_NAMES.get(canonical, symbol)}) sits in the equal-weight quality basket. "
-        "Membership only — rebalance is monthly on the last HK session, not a daily buy/sell."
+        "Membership only — the book rebalances each session; this card is not a single-name buy/sell."
     )
     return out
 
@@ -300,12 +300,12 @@ def theme_signal(symbol: str) -> dict[str, Any]:
         out["action"] = "hold"
         out["reason"] = (
             f"{symbol} is outside the Hang Seng TECH rotation universe "
-            "(platforms / hardware / semis / EV). No monthly sleeve weight."
+            "(platforms / hardware / semis / EV). No sleeve weight."
         )
         return out
     out["reason"] = (
         f"{symbol} ({HK_NAMES.get(symbol, symbol)}) sits in the {theme} sleeve. "
-        "Membership only — rebalance is monthly on the last HK session, not a daily buy/sell."
+        "Membership only — the book rebalances each session; this card is not a single-name buy/sell."
     )
     return out
 
@@ -328,12 +328,12 @@ def cn_quality_signal(symbol: str) -> dict[str, Any]:
         out["action"] = "hold"
         out["reason"] = (
             f"{symbol} is outside the CN quality book "
-            "(operating blue chips, not industry ETFs). No monthly sleeve weight."
+            "(operating blue chips, not industry ETFs). No sleeve weight."
         )
         return out
     out["reason"] = (
         f"{symbol} ({CN_STOCK_UNIVERSE.get(canonical, symbol)}) sits in the equal-weight quality basket. "
-        "Membership only — rebalance is monthly on the last A-share session, not a daily buy/sell."
+        "Membership only — the book rebalances each session; this card is not a single-name buy/sell."
     )
     return out
 
@@ -359,12 +359,12 @@ def cn_etf_signal(symbol: str) -> dict[str, Any]:
         out["action"] = "hold"
         out["reason"] = (
             f"{symbol} is outside the A-share industry ETF rotation universe "
-            "(semis / ev / healthcare / defense). No monthly sleeve weight."
+            "(semis / ev / healthcare / defense). No sleeve weight."
         )
         return out
     out["reason"] = (
         f"{symbol} ({label}) sits in the {theme} sleeve. "
-        "Membership only — rebalance is monthly on the last A-share session, not a daily buy/sell."
+        "Membership only — the book rebalances each session; this card is not a single-name buy/sell."
     )
     return out
 

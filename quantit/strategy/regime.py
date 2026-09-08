@@ -1,4 +1,4 @@
-"""Monthly theme-rotation strategy (long-horizon, multi-asset)."""
+"""Daily theme-rotation strategy (multi-asset; turnover band damps noise)."""
 
 from __future__ import annotations
 
@@ -9,17 +9,28 @@ from quantit.markets.hk import HSTECH_ETF, HSTECH_THEMES
 from quantit.strategy.base import Context, Strategy
 
 
+_MONTH_END_TRAILING_MARGIN_DAYS = 4
+
+
 def is_month_end(dates: pd.DatetimeIndex, when: pd.Timestamp) -> bool:
-    """True if ``when`` is the last session in its month on ``dates``."""
+    """True if ``when`` is the last session in its month on ``dates``.
+
+    When ``when`` is the newest session in the window (live mode: the daily bar
+    only reaches today), there is no "next session" to compare against, so we
+    require ``when`` to fall within a few calendar days of the month's end.
+    Without that, every session that happens to be the newest bar (any live
+    day after a market close) would look like a month end.
+    """
     ts = pd.Timestamp(when).normalize()
-    idx = pd.DatetimeIndex(dates).normalize()
+    idx = pd.DatetimeIndex(dates).normalize().sort_values().unique()
     loc = idx.get_indexer([ts])[0]
     if loc < 0:
         return False
-    if loc >= len(idx) - 1:
-        return True
-    nxt = pd.Timestamp(idx[loc + 1])
-    return ts.month != nxt.month or ts.year != nxt.year
+    if loc < len(idx) - 1:
+        nxt = pd.Timestamp(idx[loc + 1])
+        return ts.month != nxt.month or ts.year != nxt.year
+    month_end = pd.Timestamp(ts) + pd.offsets.MonthEnd(0)
+    return (month_end.normalize() - ts).days <= _MONTH_END_TRAILING_MARGIN_DAYS
 
 
 def feasible_hk_weights(
@@ -53,8 +64,9 @@ def feasible_hk_weights(
 class ThemeRotationStrategy(Strategy):
     """Allocate to Hang Seng TECH themes from precomputed regime scores.
 
-    Rebalances on the last session of each month. Theme weights are spread
-    equally across members that have a quote that day. Remainder is cash.
+    Rebalances each session. Theme weights are spread equally across members
+    that have a quote that day. Remainder is cash. ``turnover_band`` skips
+    names whose quantity change is too small to bother.
     """
 
     def __init__(
@@ -72,23 +84,11 @@ class ThemeRotationStrategy(Strategy):
         self.risk_off_invested = risk_off_invested
         self.equal_weight_band = equal_weight_band
         self.turnover_band = turnover_band
-        self._dates: pd.DatetimeIndex | None = None
-
-    def on_start(self, context: Context) -> None:
-        if context.data_map:
-            calendar = None
-            for df in context.data_map.values():
-                calendar = df.index if calendar is None else calendar.union(df.index)
-            self._dates = pd.DatetimeIndex(calendar).sort_values().normalize()
-        else:
-            self._dates = pd.DatetimeIndex(context.data.index).normalize()
 
     def on_bar(self, context: Context, bar: pd.Series) -> None:
-        if context.current_date is None or self._dates is None:
+        if context.current_date is None:
             return
         ts = pd.Timestamp(context.current_date)
-        if not is_month_end(self._dates, ts):
-            return
         row = self.scores.asof(ts)
         if row is None or not isinstance(row, pd.Series) or row.isna().all():
             return

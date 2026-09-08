@@ -112,15 +112,21 @@ def test_apply_target_book_only_touches_cl(tmp_path) -> None:
     broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
     broker.ensure_accounts()
     us_cash = broker.get_account("us").cash
+    us_book_cash = broker.get_account("us_book").cash
     hk_cash = broker.get_account("hk").cash
+    hk_theme_cash = broker.get_account("hk_theme").cash
     cn_cash = broker.get_account("cn").cash
+    cn_etf_cash = broker.get_account("cn_etf").cash
     book = TargetBook(weights={"SH600000": 1.0}, alpha_id="006", rationale="test cl")
     fills = apply_target_book(broker, book)
     assert fills
     assert all(f["status"] in {"filled", "rejected"} for f in fills)
     assert broker.get_account("us").cash == pytest.approx(us_cash)
+    assert broker.get_account("us_book").cash == pytest.approx(us_book_cash)
     assert broker.get_account("hk").cash == pytest.approx(hk_cash)
+    assert broker.get_account("hk_theme").cash == pytest.approx(hk_theme_cash)
     assert broker.get_account("cn").cash == pytest.approx(cn_cash)
+    assert broker.get_account("cn_etf").cash == pytest.approx(cn_etf_cash)
     pos = broker.get_position("cl", "SH600000")
     assert pos is not None and pos.quantity >= 100
     assert broker.get_account("cl").cash < 1_000_000.0
@@ -170,3 +176,60 @@ def test_dump_step_can_trade_when_gates_pass(tmp_path, monkeypatch) -> None:
     assert broker.get_account("us").cash == pytest.approx(us_before)
     assert body.get("fills")
     assert broker.get_position("cl", "SH600000") is not None
+
+
+def test_markets_include_cl_when_adapter_registered(tmp_path) -> None:
+    from quantit.api.app import create_app
+
+    registry, dest = _dump(tmp_path)
+    session = create_session("sqlite:///:memory:")
+    broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+    worker = LoopWorker(artifacts_dir=tmp_path / "art", data_dir=dest, force_fixture=False)
+    app = create_app(broker=broker, registry=registry, closeloop_worker=worker)
+    client = TestClient(app)
+    ids = {m["id"] for m in client.get("/api/v1/markets").json()}
+    assert "cl" in ids
+    cl = next(m for m in client.get("/api/v1/markets").json() if m["id"] == "cl")
+    assert cl["venue"] == "cl"
+    assert cl["strategy_id"] == "closeloop"
+    assert cl["currency"] == "CNY"
+
+
+def test_background_loop_books_cl_once_per_day(tmp_path, monkeypatch) -> None:
+    import time
+
+    from quantit.api.app import create_app
+    from closeloop.loop.book import TargetBook
+    from closeloop.validate.gates import GateReport
+
+    registry, dest = _dump(tmp_path)
+    session = create_session("sqlite:///:memory:")
+    broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+    worker = LoopWorker(
+        artifacts_dir=tmp_path / "art",
+        data_dir=dest,
+        force_fixture=False,
+        interval_sec=0.05,
+    )
+    fake = GateReport(True, 0.05, 1.0, 0.02, 0.1, [])
+    monkeypatch.setattr("closeloop.loop.worker.evaluate_spec", lambda *a, **k: fake)
+    monkeypatch.setattr(
+        "closeloop.loop.worker.target_book_from_factor",
+        lambda *a, **k: TargetBook(weights={"SH600000": 1.0}, alpha_id="006", rationale="mock"),
+    )
+    create_app(broker=broker, registry=registry, closeloop_worker=worker)
+    worker.start_background()
+    try:
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            pos = broker.get_position("cl", "SH600000")
+            if pos is not None and pos.quantity >= 100:
+                break
+            time.sleep(0.05)
+        pos = broker.get_position("cl", "SH600000")
+        assert pos is not None and pos.quantity >= 100
+        qty = pos.quantity
+        time.sleep(0.15)
+        assert broker.get_position("cl", "SH600000").quantity == qty
+    finally:
+        worker.stop()

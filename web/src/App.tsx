@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "./api";
 import { KLineChart } from "./components/KLineChart";
 import { NotesBoard } from "./components/NotesBoard";
@@ -7,7 +7,9 @@ import { PortfolioPage } from "./components/PortfolioPage";
 import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
 import { ResizableCard } from "./components/ResizableCard";
 import { StrategyDesk } from "./components/StrategyDesk";
+import { TradeToasts, toastsFromTrades, type TradeToastItem } from "./components/TradeToasts";
 import { DEFAULT_SYMBOL, DESK_MARKET_IDS, marketUi } from "./markets/config";
+import { instrumentLabel, usesNameCodeLabel } from "./markets/display";
 import type {
   Account,
   Bar,
@@ -48,8 +50,8 @@ function fmt(n: number | null | undefined, digits = 2): string {
 export function App() {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [market, setMarket] = useState("us");
-  const [symbol, setSymbol] = useState("AAPL");
-  const [query, setQuery] = useState("AAPL");
+  const [symbol, setSymbol] = useState("JNJ");
+  const [query, setQuery] = useState("JNJ");
   const [interval, setInterval] = useState("1d");
   const [instrument, setInstrument] = useState<Instrument | null>(null);
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -72,6 +74,11 @@ export function App() {
   const [blotterLoading, setBlotterLoading] = useState(true);
   const [deskLoading, setDeskLoading] = useState(true);
   const [page, setPage] = useState<Page>(readPage);
+  const symbolLoadGen = useRef(0);
+  const userLoadGen = useRef(0);
+  const viewRef = useRef({ market: "us", symbol: "JNJ" });
+  const seenTradeIds = useRef<Set<number> | null>(null);
+  const [tradeToasts, setTradeToasts] = useState<TradeToastItem[]>([]);
 
   const ui = marketUi(market);
   const account = accounts.find((a) => a.market_id === market);
@@ -94,6 +101,19 @@ export function App() {
       setOrders(ord);
       setTrades(tr);
       setRunner(run);
+      const paper = tr;
+      const seen = seenTradeIds.current;
+      if (seen === null) {
+        seenTradeIds.current = new Set(paper.map((t) => t.id));
+      } else {
+        const fresh = paper.filter((t) => !seen.has(t.id));
+        for (const t of fresh) {
+          seen.add(t.id);
+        }
+        if (fresh.length) {
+          setTradeToasts((prev) => [...toastsFromTrades(fresh), ...prev].slice(0, 4));
+        }
+      }
     } finally {
       if (!opts?.quiet) {
         setBlotterLoading(false);
@@ -129,6 +149,14 @@ export function App() {
     nextInterval = interval,
     opts?: { quiet?: boolean },
   ) {
+    viewRef.current = { market: nextMarket, symbol: nextSymbol };
+    if (opts?.quiet && userLoadGen.current) {
+      return;
+    }
+    const gen = opts?.quiet ? symbolLoadGen.current : ++symbolLoadGen.current;
+    if (!opts?.quiet) {
+      userLoadGen.current = gen;
+    }
     setError("");
     if (!opts?.quiet) {
       setSymbolLoading(true);
@@ -140,6 +168,9 @@ export function App() {
         api.bars(nextMarket, nextSymbol, nextInterval),
         api.signals(nextMarket, nextSymbol),
       ]);
+      if (gen !== symbolLoadGen.current) {
+        return;
+      }
       setInstrument(inst);
       setQuote(q);
       setBars(b);
@@ -147,9 +178,15 @@ export function App() {
       setSymbol(inst.symbol);
       setQuery(inst.symbol);
     } catch (err) {
+      if (gen !== symbolLoadGen.current) {
+        return;
+      }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      if (!opts?.quiet) {
+      if (!opts?.quiet && userLoadGen.current === gen) {
+        userLoadGen.current = 0;
+      }
+      if (!opts?.quiet && gen === symbolLoadGen.current) {
         setSymbolLoading(false);
       }
     }
@@ -177,7 +214,7 @@ export function App() {
       const desk = list.filter((m) => (DESK_MARKET_IDS as readonly string[]).includes(m.id));
       const first = desk[0]?.id ?? "us";
       setMarket(first);
-      const sym = DEFAULT_SYMBOL[first] ?? "AAPL";
+      const sym = DEFAULT_SYMBOL[first] ?? "JNJ";
       setSymbol(sym);
       setQuery(sym);
       return loadSymbol(first, sym);
@@ -191,13 +228,14 @@ export function App() {
 
   useEffect(() => {
     const timer = window.setInterval(() => {
+      loadBlotter({ quiet: true }).catch(() => undefined);
       if (page !== "desk") {
         return;
       }
       if (symbol) {
-        loadSymbol(market, symbol, interval, { quiet: true }).catch(() => undefined);
+        const view = viewRef.current;
+        loadSymbol(view.market, view.symbol, interval, { quiet: true }).catch(() => undefined);
       }
-      loadBlotter({ quiet: true }).catch(() => undefined);
       api.notes().then(setNotes).catch(() => undefined);
     }, POLL_MS);
     return () => window.clearInterval(timer);
@@ -218,7 +256,7 @@ export function App() {
     setMarket(id);
     const next = DEFAULT_SYMBOL[id] ?? query;
     setInterval("1d");
-    const match = strategies.find((s) => s.markets.includes(id));
+    const match = strategies.find((s) => s.book_id === id) ?? strategies.find((s) => s.markets.includes(id));
     if (match) {
       setStrategyId(match.id);
     }
@@ -241,7 +279,7 @@ export function App() {
       if (order.status === "rejected") {
         setMessage(`Rejected: ${order.reject_reason ?? "unknown"}`);
       } else {
-        setMessage(`${side.toUpperCase()} ${order.quantity} ${order.symbol} @ ${fmt(order.fill_price, ui.pricePrecision)}`);
+        setMessage(`${side.toUpperCase()} ${order.quantity} ${instrumentLabel(market, order.symbol, order.name)} @ ${fmt(order.fill_price, ui.pricePrecision)}`);
       }
       setSelectedOrder(order);
       await loadBlotter();
@@ -256,6 +294,7 @@ export function App() {
 
   return (
     <div className="terminal">
+      <TradeToasts items={tradeToasts} />
       <header className="topbar">
         <div className="brand">QuantiT <span>paper</span></div>
         <div className="pages">
@@ -296,13 +335,13 @@ export function App() {
       {page === "desk" && runner ? (
         <div className="runner-bar">
           <span className={runner.running ? "live" : "off"}>{runner.running ? "LIVE" : "PAUSED"}</span>
-          <span>US {fmt(runner.cash?.us ?? accounts.find((a) => a.market_id === "us")?.cash, 0)} USD · seed {fmt(runner.seed_cash?.us, 0)}</span>
-          <span>HK {fmt(runner.cash?.hk ?? accounts.find((a) => a.market_id === "hk")?.cash, 0)} HKD · seed {fmt(runner.seed_cash?.hk, 0)}</span>
-          <span>CN {fmt(runner.cash?.cn ?? accounts.find((a) => a.market_id === "cn")?.cash, 0)} CNY · seed {fmt(runner.seed_cash?.cn, 0)}</span>
+          <span>US {fmt(runner.cash?.us ?? accounts.find((a) => a.market_id === "us")?.cash, 0)} / {fmt(runner.cash?.us_book ?? accounts.find((a) => a.market_id === "us_book")?.cash, 0)} USD</span>
+          <span>HK {fmt(runner.cash?.hk ?? accounts.find((a) => a.market_id === "hk")?.cash, 0)} / {fmt(runner.cash?.hk_theme ?? accounts.find((a) => a.market_id === "hk_theme")?.cash, 0)} HKD</span>
+          <span>CN {fmt(runner.cash?.cn ?? accounts.find((a) => a.market_id === "cn")?.cash, 0)} / {fmt(runner.cash?.cn_etf ?? accounts.find((a) => a.market_id === "cn_etf")?.cash, 0)} CNY</span>
           <span>{(runner.allowed?.us ?? []).join("/")} · {(runner.allowed?.hk ?? []).join("/")}</span>
           <span>{runner.last_tick ? `tick ${runner.last_tick.replace("T", " ").slice(0, 19)}` : "waiting for first tick"}</span>
           {runner.actions[0] ? (
-            <span>{runner.actions[0].side} {runner.actions[0].quantity} {runner.actions[0].symbol} ({runner.actions[0].status})</span>
+            <span>{runner.actions[0].side} {runner.actions[0].quantity} {instrumentLabel(runner.actions[0].market_id, runner.actions[0].symbol, runner.actions[0].name)} ({runner.actions[0].status})</span>
           ) : null}
           <button type="button" onClick={() => api.runnerTick().then(setRunner).then(() => loadBlotter())}>Run now</button>
           {runner.running ? (
@@ -319,8 +358,8 @@ export function App() {
         <ResizableCard id="chart" className="chart" loading={symbolLoading} minWidth={360} minHeight={280}>
           <div className="quote-bar">
             <div>
-              <h1>{instrument?.symbol ?? symbol}</h1>
-              <p>{instrument?.name} · {instrument?.asset_class ?? "equity"} · {instrument?.currency} · lot {instrument?.lot_size ?? "—"}{instrument?.multiplier && instrument.multiplier > 1 ? ` · ×${instrument.multiplier}` : ""}</p>
+              <h1>{instrumentLabel(instrument?.market_id ?? market, instrument?.symbol ?? symbol, instrument?.name)}</h1>
+              <p>{instrument && !usesNameCodeLabel(instrument.market_id) ? `${instrument.name} · ` : ""}{instrument?.asset_class ?? "equity"} · {instrument?.currency} · lot {instrument?.lot_size ?? "—"}{instrument?.multiplier && instrument.multiplier > 1 ? ` · ×${instrument.multiplier}` : ""}</p>
             </div>
             <div className={`last ${changeClass}`}>
               <strong>{fmt(quote?.last, ui.pricePrecision)}</strong>
@@ -427,12 +466,12 @@ export function App() {
                   <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
                 </thead>
                 <tbody>
-                  {positions.filter((p) => p.market_id !== "cl").length === 0 ? (
+                  {positions.length === 0 ? (
                     <tr><td colSpan={4}>No positions</td></tr>
-                  ) : positions.filter((p) => p.market_id !== "cl").map((p) => (
+                  ) : positions.map((p) => (
                     <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
                       <td>{p.market_id}</td>
-                      <td>{p.symbol}</td>
+                      <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>
                       <td>{p.quantity}</td>
                       <td>{fmt(p.avg_cost)}</td>
                     </tr>
@@ -446,12 +485,12 @@ export function App() {
                   <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
                 </thead>
                 <tbody>
-                  {trades.filter((t) => t.market_id !== "cl").length === 0 ? (
+                  {trades.length === 0 ? (
                     <tr><td colSpan={5}>No trades</td></tr>
-                  ) : trades.filter((t) => t.market_id !== "cl").map((t) => (
+                  ) : trades.map((t) => (
                     <tr key={t.id}>
                       <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
-                      <td>{t.symbol}</td>
+                      <td>{instrumentLabel(t.market_id, t.symbol, t.name)}</td>
                       <td className={t.side}>{t.side}</td>
                       <td>{t.quantity}</td>
                       <td>{fmt(t.price)}</td>
@@ -466,12 +505,12 @@ export function App() {
                   <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
                 </thead>
                 <tbody>
-                  {orders.filter((o) => o.market_id !== "cl").length === 0 ? (
+                  {orders.length === 0 ? (
                     <tr><td colSpan={5}>No orders</td></tr>
-                  ) : orders.filter((o) => o.market_id !== "cl").map((o) => (
+                  ) : orders.map((o) => (
                     <tr key={o.id} onClick={() => setSelectedOrder(o)}>
                       <td>{o.id}</td>
-                      <td>{o.symbol}</td>
+                      <td>{instrumentLabel(o.market_id, o.symbol, o.name)}</td>
                       <td>{o.status}</td>
                       <td>{o.quantity}</td>
                       <td className="why">{o.rationale ?? "—"}</td>
@@ -497,7 +536,7 @@ export function App() {
             <NotesBoard
               notes={notes}
               market={market}
-              symbol={symbol}
+              symbol={instrumentLabel(instrument?.market_id ?? market, symbol, instrument?.name)}
               onAdd={async (body, tagSymbol) => {
                 await api.addNote({
                   body,

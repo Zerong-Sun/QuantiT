@@ -232,8 +232,12 @@ class CNAdapter(MarketAdapter):
 
     def default_provider(self) -> DataProvider:
         from quantit.data.cn_csv import CompositeCNProvider
+        from quantit.data.provider import FailoverProvider, YahooFinanceProvider
 
-        return CompositeCNProvider()
+        # CSV covers onshore ETFs; single-name quality stocks are not in that
+        # file, and AkShare is optional. Yahoo is the live fallback so the
+        # paper book can mark and trade 000333.SZ / 600519.SS without akshare.
+        return FailoverProvider(CompositeCNProvider(), YahooFinanceProvider())
 
     def normalize_symbol(self, raw: str) -> str:
         return canonical_cn_symbol(raw)

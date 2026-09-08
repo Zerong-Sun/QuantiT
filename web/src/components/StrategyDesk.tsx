@@ -1,4 +1,5 @@
 import type { Strategy } from "../types";
+import { instrumentLabel, usesNameCodeLabel } from "../markets/display";
 
 function fmtParam(value: string | number | boolean | null): string {
   if (typeof value === "number") {
@@ -22,11 +23,13 @@ export function StrategyDesk({
   if (!selected) {
     return <p className="empty">No strategies registered.</p>;
   }
+  const bookMarket =
+    selected.markets.find((id) => usesNameCodeLabel(id)) ?? selected.markets[0] ?? market;
   return (
     <div className="strategy-desk">
       <div className="strategy-tabs">
         {strategies.map((s) => {
-          const applies = s.markets.includes(market);
+          const applies = s.book_id === market || s.markets.includes(market);
           return (
             <button
               key={s.id}
@@ -45,7 +48,11 @@ export function StrategyDesk({
             <h3>{selected.name}</h3>
             <p className="meta">
               {selected.class_name} · {selected.horizon}
-              {selected.markets.includes(market) ? " · applies to this market" : " · other market"}
+              {selected.book_id === market || selected.markets.includes(market)
+                ? selected.book_id
+                  ? ` · live on ${selected.book_id}`
+                  : " · applies to this market"
+                : " · other market"}
             </p>
           </div>
         </header>
@@ -96,7 +103,7 @@ export function StrategyDesk({
                   <ul>
                     {members.map((m) => (
                       <li key={m.symbol}>
-                        <code>{m.symbol}</code> {m.name}
+                        {instrumentLabel(bookMarket, m.symbol, m.name)}
                       </li>
                     ))}
                   </ul>

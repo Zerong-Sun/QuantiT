@@ -9,13 +9,28 @@ from typing import Any
 import pandas as pd
 
 from quantit.data.cache import DataCache
-from quantit.data.provider import YahooFinanceProvider
+from quantit.data.finnhub_candles import FinnhubDailyProvider
+from quantit.data.hk_structured import EastmoneyHKStructuredProvider
+from quantit.data.polygon_aggs import PolygonDailyProvider
+from quantit.data.provider import DataProvider, YahooFinanceProvider
 from quantit.markets.assets import asset_class, multiplier
+from quantit.markets.display import lookup_name
+from quantit.paper.books import venue_of
 from quantit.paper.broker import PaperBroker
 from quantit.paper.models import Account, Position, Trade
 
 _FETCH_TIMEOUT_SEC = 5.0
 _OVERVIEW_BUDGET_SEC = 20.0
+
+# Providers whose daily bars are network-backed and rate-limited; the overview
+# serves these from the local parquet cache whenever it is fresh enough. Custom
+# providers (tests, fakes) are intentionally not cache-backed.
+_CACHE_BACKED_PROVIDERS = (
+    YahooFinanceProvider,
+    FinnhubDailyProvider,
+    PolygonDailyProvider,
+    EastmoneyHKStructuredProvider,
+)
 
 
 def _period_starts(now: datetime) -> dict[str, datetime]:
@@ -70,19 +85,38 @@ def _fetch_bars(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
     return _normalize_frame(df)
 
 
-def _is_yahoo(adapter) -> bool:
-    return isinstance(getattr(adapter, "provider", None), YahooFinanceProvider)
+def _cache_backed(adapter) -> bool:
+    """True when the adapter's provider chain includes a known network daily source."""
+    root = getattr(adapter, "provider", None)
+    if root is None:
+        return False
+    stack = [root]
+    seen: set[int] = set()
+    while stack:
+        provider = stack.pop()
+        if id(provider) in seen:
+            continue
+        seen.add(id(provider))
+        if isinstance(provider, _CACHE_BACKED_PROVIDERS):
+            return True
+        for attr in ("primary", "fallback", "equity", "structured"):
+            nested = getattr(provider, attr, None)
+            if isinstance(nested, DataProvider):
+                stack.append(nested)
+    return False
 
 
 def _load_frame(adapter, symbol: str, now: datetime) -> pd.DataFrame | None:
-    cached = _cached_frame(symbol) if _is_yahoo(adapter) else None
+    # Cache-first for network-backed daily sources: daily bars move slowly, and
+    # serving from the local parquet cache keeps live-source pressure low.
+    cached = _cached_frame(symbol) if _cache_backed(adapter) else None
     if cached is not None:
         last_idx = pd.Timestamp(cached.index.max())
         if last_idx >= pd.Timestamp(now).normalize() - pd.Timedelta(days=4):
             return cached
     fetched = _fetch_bars(adapter, symbol, now)
     if fetched is not None:
-        if _is_yahoo(adapter):
+        if _cache_backed(adapter):
             try:
                 DataCache().set(symbol, fetched, "1d")
             except Exception:
@@ -175,7 +209,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
     jobs: list[tuple[str, str, Any]] = []
     for market_id, symbols in symbols_needed.items():
         try:
-            adapter = registry.get(market_id)
+            adapter = registry.get(venue_of(market_id))
         except KeyError:
             continue
         for symbol in symbols:
@@ -272,6 +306,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                 {
                     "market_id": market_id,
                     "symbol": pos.symbol,
+                    "name": lookup_name(market_id, pos.symbol),
                     "quantity": int(pos.quantity),
                     "avg_cost": float(pos.avg_cost),
                     "last": last,

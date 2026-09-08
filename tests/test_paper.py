@@ -66,11 +66,15 @@ def broker() -> PaperBroker:
 class TestAccounts:
     def test_seeds_three_currency_accounts(self, broker: PaperBroker) -> None:
         accounts = {a.market_id: a for a in broker.list_accounts()}
-        assert set(accounts) == {"us", "hk", "cn"}
+        assert set(accounts) == {"us", "us_book", "hk", "hk_theme", "cn", "cn_etf"}
         assert accounts["us"].currency == "USD"
+        assert accounts["us_book"].currency == "USD"
         assert accounts["hk"].currency == "HKD"
+        assert accounts["hk_theme"].currency == "HKD"
         assert accounts["cn"].currency == "CNY"
+        assert accounts["cn_etf"].currency == "CNY"
         assert accounts["us"].cash == 100_000.0
+        assert accounts["us_book"].cash == 100_000.0
 
 
 class TestMarketOrder:
@@ -85,6 +89,40 @@ class TestMarketOrder:
         trades = broker.list_trades("us")
         assert len(trades) == 1
         assert trades[0].side == "buy"
+
+    def test_reads_during_quote_fetch_do_not_poison_session(self, broker: PaperBroker) -> None:
+        import threading
+
+        adapter = broker.adapter_for("us")
+        orig = adapter.fetch_quote
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked(symbol: str):
+            entered.set()
+            assert release.wait(2.0)
+            return orig(symbol)
+
+        adapter.fetch_quote = blocked  # type: ignore[method-assign]
+        errors: list[BaseException] = []
+        filled: list = []
+
+        def buy() -> None:
+            try:
+                filled.append(broker.place_order("us", "AAPL", "buy", 10))
+            except BaseException as exc:  # noqa: BLE001 — capture for the parent thread
+                errors.append(exc)
+
+        worker = threading.Thread(target=buy)
+        worker.start()
+        assert entered.wait(2.0)
+        accounts = broker.list_accounts()
+        assert accounts
+        release.set()
+        worker.join(3.0)
+        assert not worker.is_alive()
+        assert errors == []
+        assert filled and filled[0].status == "filled"
 
     def test_rejects_sell_when_flat(self, broker: PaperBroker) -> None:
         order = broker.place_order("us", "AAPL", "sell", 1)

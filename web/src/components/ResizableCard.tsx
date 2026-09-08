@@ -42,37 +42,42 @@ export function ResizableCard({
     (event: PointerEvent<HTMLDivElement>) => {
       event.preventDefault();
       event.stopPropagation();
-      const card = event.currentTarget.parentElement;
+      const grip = event.currentTarget;
+      const card = grip.parentElement;
       if (!card) {
         return;
       }
+      grip.setPointerCapture(event.pointerId);
       const rect = card.getBoundingClientRect();
       const start = { x: event.clientX, y: event.clientY, w: rect.width, h: rect.height };
+      let next = { w: start.w, h: start.h };
       const onMove = (ev: globalThis.PointerEvent) => {
-        setSize({
+        next = {
           w: Math.max(minWidth, start.w + ev.clientX - start.x),
           h: Math.max(minHeight, start.h + ev.clientY - start.y),
-        });
+        };
+        setSize(next);
       };
       const onUp = () => {
-        window.removeEventListener("pointermove", onMove);
-        window.removeEventListener("pointerup", onUp);
-        window.removeEventListener("pointercancel", onUp);
-        const next = card.getBoundingClientRect();
-        writeSize(id, next.width, next.height);
+        grip.removeEventListener("pointermove", onMove);
+        grip.removeEventListener("pointerup", onUp);
+        grip.removeEventListener("pointercancel", onUp);
+        writeSize(id, next.w, next.h);
       };
-      window.addEventListener("pointermove", onMove);
-      window.addEventListener("pointerup", onUp);
-      window.addEventListener("pointercancel", onUp);
+      grip.addEventListener("pointermove", onMove);
+      grip.addEventListener("pointerup", onUp);
+      grip.addEventListener("pointercancel", onUp);
     },
     [id, minWidth, minHeight],
   );
 
+  const sized = size.w != null && size.h != null;
   const style: CSSProperties = {
     minWidth,
     minHeight,
     width: size.w,
     height: size.h,
+    ...(sized ? { flexGrow: 0, flexShrink: 0, flexBasis: "auto" } : {}),
   };
 
   return (

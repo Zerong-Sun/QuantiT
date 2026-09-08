@@ -54,6 +54,12 @@ class Config:
         or os.environ.get("QUANTIT_FINNHUB_API_KEY")
         or ""
     )
+    polygon_api_key: str = field(
+        default_factory=lambda: os.environ.get("POLYGON_API_KEY")
+        or os.environ.get("MASSIVE_API_KEY")
+        or os.environ.get("QUANTIT_POLYGON_API_KEY")
+        or ""
+    )
 
     def ensure_dirs(self) -> None:
         """Create required directories."""

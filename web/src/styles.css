@@ -54,7 +54,74 @@ html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(-
   padding: 6px 8px;
 }
 .pages { display: flex; gap: 6px; }
+.markets { display: flex; flex-wrap: wrap; gap: 6px; }
 .session { margin-left: auto; color: var(--muted); font-size: 12px; }
+
+.trade-toasts {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  max-width: min(640px, calc(100vw - 24px));
+}
+.trade-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: max-content;
+  max-width: 100%;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #121821;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  animation: trade-toast-in 0.42s cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+.trade-toast.buy {
+  border-color: rgba(61, 214, 140, 0.55);
+  box-shadow: 0 0 0 1px rgba(61, 214, 140, 0.18), 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.trade-toast.sell {
+  border-color: rgba(240, 97, 109, 0.55);
+  box-shadow: 0 0 0 1px rgba(240, 97, 109, 0.18), 0 10px 28px rgba(0, 0, 0, 0.45);
+}
+.trade-toast.leaving {
+  animation: trade-toast-out 0.32s ease-in forwards;
+}
+.trade-toast-side {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+.trade-toast.buy .trade-toast-side { color: var(--up); }
+.trade-toast.sell .trade-toast-side { color: var(--down); }
+.trade-toast-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trade-toast-fill { color: var(--muted); flex-shrink: 0; }
+
+@keyframes trade-toast-in {
+  from { opacity: 0; transform: translateY(-18px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes trade-toast-out {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-12px) scale(0.98); }
+}
+
 .runner-bar {
   display: flex;
   flex-wrap: wrap;
@@ -103,7 +170,9 @@ html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(-
 .card.ticket { flex: 0 1 300px; width: 300px; height: min(52vh, 560px); }
 .card.pane { flex: 1 1 280px; height: 280px; }
 .card.wide { flex: 1 1 100%; height: min(36vh, 360px); }
-.card.is-sized { flex-grow: 0; flex-shrink: 0; }
+.card.is-sized {
+  flex: 0 0 auto;
+}
 
 .card-head {
   display: flex;
@@ -172,7 +241,7 @@ html, body, #root { height: 100%; margin: 0; background: var(--bg); color: var(-
 .search button { min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
 .intervals { display: flex; align-items: center; gap: 6px; }
 
-.chart-host { flex: 1; min-height: 180px; }
+.chart-host { flex: 1; min-height: 0; }
 .quote-bar {
   display: flex;
   flex-wrap: wrap;
@@ -290,7 +359,12 @@ button.ghost { background: transparent; border: none; color: var(--muted); curso
 button.ghost:hover { color: var(--down); }
 
 @media (max-width: 900px) {
-  .card.chart, .card.ticket, .card.wide { flex: 1 1 100%; width: auto; }
+  .card.chart:not(.is-sized),
+  .card.ticket:not(.is-sized),
+  .card.wide:not(.is-sized) {
+    flex: 1 1 100%;
+    width: auto;
+  }
   .notes-board { grid-template-columns: 1fr; }
 }
 
@@ -324,7 +398,8 @@ td.down { color: var(--down); }
 .legend em { margin-left: auto; color: var(--muted); font-style: normal; }
 
 .value-bars { list-style: none; margin: 0; padding: 12px; }
-.value-bars li { display: grid; grid-template-columns: 72px 1fr 88px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+.value-bars li { display: grid; grid-template-columns: minmax(120px, 1.2fr) 1fr 88px; gap: 8px; align-items: center; margin: 6px 0; font-size: 12px; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { height: 8px; background: #1c2530; border-radius: 4px; overflow: hidden; }
 .bar-fill { display: block; height: 100%; border-radius: 4px; }
 .bar-value { text-align: right; color: var(--muted); }
