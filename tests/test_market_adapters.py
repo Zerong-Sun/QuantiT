@@ -78,6 +78,18 @@ class TestProfiles:
         assert USAdapter().t_plus == 0
         assert HKAdapter().t_plus == 0
 
+    def test_sell_cost_ratio_per_venue(self) -> None:
+        from quantit.engine.broker import Broker
+        from quantit.engine.portfolio import Portfolio
+
+        # slippage + commission + stamp duty (one-way sell).
+        assert US_PROFILE.sell_cost_ratio == pytest.approx(0.0005)
+        assert HK_PROFILE.sell_cost_ratio == pytest.approx(0.0005 + 0.0008 + 0.001)
+        assert CN_PROFILE.sell_cost_ratio == pytest.approx(0.0005 + 0.0003 + 0.0005)
+        # Broker cost = slippage + commission (no stamp duty).
+        broker = Broker(Portfolio(initial_cash=1_000.0), commission_rate=0.001, slippage_rate=0.0005)
+        assert broker.sell_cost_ratio == pytest.approx(0.0015)
+
 
 class TestLotSizeAndQuantity:
     def test_us_allows_odd_lots(self) -> None:

@@ -21,3 +21,8 @@ class MarketProfile:
     def all_in_commission_rate(self) -> float:
         """One-way commission plus stamp duty (applied per fill)."""
         return self.commission_rate + self.stamp_duty_rate
+
+    @property
+    def sell_cost_ratio(self) -> float:
+        """Estimated one-way sell cost (slippage + commission + stamp duty) as a fraction."""
+        return self.slippage_rate + self.all_in_commission_rate

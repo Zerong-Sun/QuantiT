@@ -72,6 +72,11 @@ class Broker:
         self.trades: list[Trade] = []
         self.pending_orders: list[Order] = []
 
+    @property
+    def sell_cost_ratio(self) -> float:
+        """Estimated one-way sell cost (slippage + commission) as a fraction of notional."""
+        return float(self.slippage_rate) + float(self.commission_rate)
+
     def _fill(self, order: Order, price: float, timestamp: datetime) -> Order:
         if order.quantity <= 0:
             order.status = OrderStatus.REJECTED

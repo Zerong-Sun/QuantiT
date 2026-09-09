@@ -11,6 +11,10 @@ import pandas as pd
 from quantit.engine.broker import Broker, Order, OrderSide
 from quantit.engine.portfolio import Portfolio
 
+# Reserve this fraction of estimated post-sell cash for costs/rounding, so a
+# full rebalance never over-spends into a rejected buy.
+CASH_BUFFER = 0.98
+
 
 @dataclass
 class Context:
@@ -75,6 +79,66 @@ class Context:
         if qty <= 0:
             return None
         return self.sell(qty, price, symbol=sym)
+
+
+def rebalance_to_weights(
+    context: Context,
+    target_weights: dict[str, float],
+    *,
+    turnover_band: float = 0.02,
+    cash_buffer: float = CASH_BUFFER,
+) -> None:
+    """Move a multi-asset book toward ``target_weights`` (fractions of equity).
+
+    Queues sells first, then buys. Buy notional is capped at ``cash_buffer`` of
+    the estimated post-sell cash, where sell proceeds are reduced by the
+    broker's ``sell_cost_ratio``. ``cash_buffer`` also absorbs the buy-side
+    friction (slippage + commission) and integer rounding, which is not part of
+    the estimate, so it must stay below 1. Tiny quantity changes (relative to
+    the current position) are skipped when within ``turnover_band``.
+    """
+    prices = context.prices
+    if not prices:
+        return
+    equity = context.portfolio.equity(prices)
+    if equity <= 0:
+        return
+
+    sells: list[tuple[str, int]] = []
+    buys: list[tuple[str, int]] = []
+    held = {s for s, p in context.portfolio.positions.items() if p.quantity > 0}
+    for symbol in set(prices) | held:
+        px = prices.get(symbol)
+        if px is None or px <= 0:
+            continue
+        target_qty = int(equity * target_weights.get(symbol, 0.0) / px)
+        current = context.position_of(symbol)
+        diff = target_qty - current
+        if diff == 0:
+            continue
+        if current > 0 and target_qty > 0 and abs(diff) / current <= turnover_band:
+            continue
+        if diff < 0:
+            sells.append((symbol, min(-diff, current)))
+        else:
+            buys.append((symbol, diff))
+
+    for symbol, qty in sells:
+        if qty > 0:
+            context.sell(qty, symbol=symbol)
+
+    estimated_cash = context.portfolio.cash
+    for symbol, qty in sells:
+        estimated_cash += qty * prices.get(symbol, 0.0) * (1 - context.broker.sell_cost_ratio)
+
+    buy_notional = sum(qty * prices[s] for s, qty in buys if s in prices)
+    if buy_notional > estimated_cash * cash_buffer and buy_notional > 0:
+        scale = (estimated_cash * cash_buffer) / buy_notional
+        buys = [(s, int(qty * scale)) for s, qty in buys]
+
+    for symbol, qty in buys:
+        if qty > 0:
+            context.buy(qty, symbol=symbol)
 
 
 class Strategy(ABC):

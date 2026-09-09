@@ -27,6 +27,7 @@ from quantit.paper.capital import (
 )
 from quantit.research.params import strategy_params, us_primary
 from quantit.research.universes import HK_QUALITY, CN_QUALITY, US_QUALITY
+from quantit.strategy.base import CASH_BUFFER
 from quantit.strategy.cn_book import CNQualityBookStrategy
 from quantit.strategy.hk_book import HKQualityBookStrategy, quality_name_targets, quality_sleeve
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights
@@ -1046,10 +1047,10 @@ class PaperRunner:
         estimated_cash = account.cash
         for symbol, qty in sells:
             px = prices.get(symbol, 0.0)
-            estimated_cash += qty * px * (1 - 0.002)
+            estimated_cash += qty * px * (1 - adapter.profile.sell_cost_ratio)
         buy_notional = sum(qty * prices[s] for s, qty in buys if s in prices)
-        if buy_notional > estimated_cash * 0.98 and buy_notional > 0:
-            scale = (estimated_cash * 0.98) / buy_notional
+        if buy_notional > estimated_cash * CASH_BUFFER and buy_notional > 0:
+            scale = (estimated_cash * CASH_BUFFER) / buy_notional
             buys = [(s, int(qty * scale)) for s, qty in buys]
             adapter = self.broker.adapter_for(market_id)
             scaled: list[tuple[str, int]] = []

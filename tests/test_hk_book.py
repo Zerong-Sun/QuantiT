@@ -182,6 +182,59 @@ def test_universe_tuple_is_quality_book() -> None:
     assert "0005.HK" in HK_QUALITY
 
 
+def test_rebalance_to_weights_respects_cash_buffer() -> None:
+    from datetime import datetime
+
+    from quantit.engine.broker import Broker
+    from quantit.engine.portfolio import Portfolio
+    from quantit.strategy.base import Context, rebalance_to_weights
+
+    def run(buffer: float) -> int:
+        portfolio = Portfolio(initial_cash=1_000.0)
+        portfolio.buy("A", 100, 10.0)  # fully invested in A, cash 0
+        broker = Broker(portfolio, commission_rate=0.0, slippage_rate=0.0)
+        ctx = Context(
+            portfolio=portfolio,
+            broker=broker,
+            symbol="A",
+            data=pd.DataFrame(),
+            prices={"A": 10.0, "B": 10.0},
+        )
+        rebalance_to_weights(ctx, {"B": 1.0}, turnover_band=0.0, cash_buffer=buffer)
+        broker.fill_pending({"A": 10.0, "B": 10.0}, datetime(2024, 1, 2))
+        return ctx.position_of("B")
+
+    # Buffer 1.0 → no scaling: the full 100-share A sale funds 100 shares of B.
+    assert run(1.0) == 100
+    # Buffer 0.98 → scale buys to 98% of proceeds, leaving ~2% cash.
+    assert run(0.98) == 98
+
+
+def test_rebalance_to_weights_reduces_buys_for_sell_cost() -> None:
+    from datetime import datetime
+
+    from quantit.engine.broker import Broker
+    from quantit.engine.portfolio import Portfolio
+    from quantit.strategy.base import Context, rebalance_to_weights
+
+    # 0.5% slippage lowers sell proceeds (sell_cost_ratio), so the buy is scaled
+    # down from 100 → 99 to still fit within post-sell cash.
+    portfolio = Portfolio(initial_cash=1_000.0)
+    portfolio.buy("A", 100, 10.0)  # fully invested in A, cash 0
+    broker = Broker(portfolio, commission_rate=0.0, slippage_rate=0.005)
+    ctx = Context(
+        portfolio=portfolio,
+        broker=broker,
+        symbol="A",
+        data=pd.DataFrame(),
+        prices={"A": 10.0, "B": 10.0},
+    )
+    rebalance_to_weights(ctx, {"B": 1.0}, turnover_band=0.0, cash_buffer=1.0)
+    broker.fill_pending({"A": 10.0, "B": 10.0}, datetime(2024, 1, 2))
+    assert ctx.position_of("A") == 0
+    assert ctx.position_of("B") == 99
+
+
 def test_vol_scale_levers_when_cold_and_shrinks_when_hot() -> None:
     assert vol_scale(0.10, target_vol=0.15) == pytest.approx(1.5)
     assert vol_scale(0.10, target_vol=0.15, max_leverage=1.0) == 1.0
@@ -193,7 +246,7 @@ def test_vol_scale_levers_when_cold_and_shrinks_when_hot() -> None:
     assert vol_scale(0.30, target_vol=0.0) == 1.0
 
 
-def test_sleeve_stays_near_80_and_only_strong_mom_reaches_90() -> None:
+def test_sleeve_stays_at_invested_on_and_strong_mom_fills_to_strong() -> None:
     weak = sleeve_fraction(
         0.05,
         0.08,
@@ -253,6 +306,46 @@ def test_sleeve_defaults_cap_at_90_and_95() -> None:
     )
     assert weak == pytest.approx(0.90)
     assert strong == pytest.approx(0.95)
+
+
+def test_sleeve_never_exceeds_invested_strong_and_leverage_is_capped() -> None:
+    # Realized vol far below target: vol_scale wants to lever hard, but the
+    # sleeve must never fill past invested_strong (~95%).
+    strong = sleeve_fraction(
+        0.35,
+        0.01,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=10.0,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    assert strong == pytest.approx(0.95)
+    # max_leverage above invested_strong / invested_on (~1.06) is inert.
+    same = sleeve_fraction(
+        0.35,
+        0.01,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=1.5,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    assert strong == pytest.approx(same)
+    # Weak momentum never fills past invested_on even when vol scale > 1.
+    weak = sleeve_fraction(
+        0.05,
+        0.01,
+        invested_on=0.90,
+        risk_off_scale=0.70,
+        target_vol=0.15,
+        max_leverage=10.0,
+        invested_strong=0.95,
+        strong_mom=0.20,
+    )
+    assert weak == pytest.approx(0.90)
 
 
 def test_high_realized_vol_holds_less_than_unscaled() -> None:
@@ -353,7 +446,7 @@ def test_catalog_exposes_quality_vol_params() -> None:
         entry = get_strategy(strategy_id)
         assert entry is not None
         names = {p["name"] for p in entry["parameters"]}
-        assert {"target_vol", "vol_lookback", "vol_floor", "weighting", "max_leverage", "invested_strong", "strong_mom"} <= names
+        assert {"target_vol", "vol_lookback", "vol_floor", "weighting", "max_leverage", "invested_strong", "strong_mom", "cash_buffer"} <= names
 
 
 def test_hk_defaults_keep_target_vol_and_dual_mom() -> None:
@@ -364,6 +457,7 @@ def test_hk_defaults_keep_target_vol_and_dual_mom() -> None:
     assert strat.invested_strong == pytest.approx(0.95)
     assert strat.risk_off_scale == pytest.approx(0.70)
     assert strat.max_leverage == pytest.approx(1.5)
+    assert strat.cash_buffer == pytest.approx(0.98)
     positional = HKQualityBookStrategy(252, 21, 0.5, 0.95, 0.02, 0.15, 20, 0.05, ("0002.HK", "0005.HK"))
     assert positional.universe == ("0002.HK", "0005.HK")
     assert positional.weighting == "dual_mom"

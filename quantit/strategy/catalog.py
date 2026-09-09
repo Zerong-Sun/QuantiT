@@ -39,11 +39,12 @@ PARAM_HELP: dict[str, str] = {
     "vol_floor": "Minimum realized vol so size cannot explode.",
     "max_position_pct": "Cap on equity deployed in the name.",
     "rebalance_band": "Ignore size changes smaller than this fraction of the current position.",
+    "cash_buffer": "Reserve this fraction of estimated post-sell cash when scaling buys (1.0 = use all).",
     "risk_off_scale": "When momentum is off, hold this fraction of the risk-on sleeve.",
     "invested_on": "Typical equity fraction when basket momentum is positive (~90%).",
     "invested_strong": "Book cap when skipped-lookback momentum is at least strong_mom (~95%).",
     "strong_mom": "Momentum hurdle (e.g. 0.20 = +20%) to use invested_strong instead of invested_on.",
-    "max_leverage": "Cap on target_vol / realized_vol; may exceed 1 (leverage).",
+    "max_leverage": "Upper bound on target_vol / realized_vol. The book is capped at invested_strong (~95%), so values above invested_strong/invested_on (~1.06) have no effect.",
     "weighting": "Inside the sleeve: dual_mom (absolute+relative), inv_vol (vol-parity), or equal (1/n).",
 }
 
@@ -295,12 +296,13 @@ def _tsmom_entry() -> dict[str, Any]:
         "thesis": (
             "Own-price trend. The sign of the skipped 12-month return decides whether "
             "to hold the name; position size targets a constant annualized volatility. "
-            "Cash when momentum is non-positive. No shorting."
+            "When momentum is non-positive, scale down to risk_off_scale of the "
+            "vol-target size (default 0.3; 0 means cash). No shorting."
         ),
         "rules": [
             "Momentum = close[t-skip] / close[t-lookback] - 1 (default skip 21, lookback 252).",
             "If momentum > 0, size so notional vol ≈ target_vol, capped by max_position_pct.",
-            "If momentum ≤ 0, sell all and stay cash.",
+            "If momentum ≤ 0, scale to risk_off_scale of the vol-target size (default 0.3; 0 means cash).",
             "Resize when the target quantity moves by more than rebalance_band.",
             "Paper runner books this card on the us quality account (MA/RSI live on us_book).",
         ],

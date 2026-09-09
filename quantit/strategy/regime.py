@@ -6,7 +6,7 @@ import pandas as pd
 
 from quantit.features.regime import scores_to_theme_weights
 from quantit.markets.hk import HSTECH_ETF, HSTECH_THEMES
-from quantit.strategy.base import Context, Strategy
+from quantit.strategy.base import CASH_BUFFER, Context, Strategy, rebalance_to_weights
 
 
 _MONTH_END_TRAILING_MARGIN_DAYS = 4
@@ -77,13 +77,17 @@ class ThemeRotationStrategy(Strategy):
         risk_off_invested: float = 0.40,
         equal_weight_band: float = 0.25,
         turnover_band: float = 0.02,
+        cash_buffer: float = CASH_BUFFER,
     ) -> None:
+        if not 0 < cash_buffer <= 1:
+            raise ValueError("cash_buffer must be in (0, 1]")
         self.scores = scores.sort_index()
         self.themes = themes or HSTECH_THEMES
         self.cash_threshold = cash_threshold
         self.risk_off_invested = risk_off_invested
         self.equal_weight_band = equal_weight_band
         self.turnover_band = turnover_band
+        self.cash_buffer = cash_buffer
 
     def on_bar(self, context: Context, bar: pd.Series) -> None:
         if context.current_date is None:
@@ -120,45 +124,9 @@ class ThemeRotationStrategy(Strategy):
         return target
 
     def _rebalance(self, context: Context, target_weights: dict[str, float]) -> None:
-        prices = context.prices
-        if not prices:
-            return
-        equity = context.portfolio.equity(prices)
-        if equity <= 0:
-            return
-
-        sells: list[tuple[str, int]] = []
-        buys: list[tuple[str, int]] = []
-        held = {s for s, p in context.portfolio.positions.items() if p.quantity > 0}
-        for symbol in set(prices) | held:
-            px = prices.get(symbol)
-            if px is None or px <= 0:
-                continue
-            target_qty = int(equity * target_weights.get(symbol, 0.0) / px)
-            current = context.position_of(symbol)
-            diff = target_qty - current
-            if diff == 0:
-                continue
-            if current > 0 and target_qty > 0 and abs(diff) / current <= self.turnover_band:
-                continue
-            if diff < 0:
-                sells.append((symbol, min(-diff, current)))
-            else:
-                buys.append((symbol, diff))
-
-        for symbol, qty in sells:
-            if qty > 0:
-                context.sell(qty, symbol=symbol)
-
-        estimated_cash = context.portfolio.cash
-        for symbol, qty in sells:
-            estimated_cash += qty * prices.get(symbol, 0.0) * (1 - 0.002)
-
-        buy_notional = sum(qty * prices[s] for s, qty in buys if s in prices)
-        if buy_notional > estimated_cash * 0.98 and buy_notional > 0:
-            scale = (estimated_cash * 0.98) / buy_notional
-            buys = [(s, int(qty * scale)) for s, qty in buys]
-
-        for symbol, qty in buys:
-            if qty > 0:
-                context.buy(qty, symbol=symbol)
+        rebalance_to_weights(
+            context,
+            target_weights,
+            turnover_band=self.turnover_band,
+            cash_buffer=self.cash_buffer,
+        )

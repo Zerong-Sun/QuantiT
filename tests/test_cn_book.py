@@ -43,6 +43,7 @@ def test_universe_defaults_to_cn_quality() -> None:
     assert strat.weighting == "dual_mom"
     assert strat.invested_on == pytest.approx(0.90)
     assert strat.risk_off_scale == pytest.approx(0.70)
+    assert strat.cash_buffer == pytest.approx(0.98)
 
 
 def test_catalog_cn_default_target_vol_is_higher_than_hk() -> None:

@@ -8,7 +8,7 @@ import statistics
 import pandas as pd
 
 from quantit.research.universes import HK_QUALITY
-from quantit.strategy.base import Context, Strategy
+from quantit.strategy.base import CASH_BUFFER, Context, Strategy, rebalance_to_weights
 from quantit.strategy.tsmom import tsmom_momentum
 
 
@@ -53,11 +53,16 @@ def vol_scale(
     vol_floor: float = 0.05,
     max_leverage: float = 1.5,
 ) -> float:
-    """Scale the sleeve so realized vol maps toward ``target_vol``.
+    """Scale a sleeve toward ``target_vol`` (vol targeting).
 
-    May exceed 1 when realized vol is below target (leverage), but never above
-    ``max_leverage``. Unknown/non-finite realized vol leaves the sleeve
-    unchanged. ``+inf`` realized vol shrinks to zero.
+    Returns ``target_vol / realized_vol`` capped at ``max_leverage``, so it
+    shrinks the sleeve when realized vol exceeds target and may exceed 1 (fill
+    up) when realized vol is below target. In ``sleeve_fraction`` that fill-up
+    is bounded by ``invested_strong`` (~95%), so ``max_leverage`` values above
+    ``invested_strong / invested_on`` (≈1.06 with the defaults) are inert.
+
+    Unknown/non-finite realized vol leaves the sleeve unchanged. ``+inf``
+    realized vol shrinks to zero.
     """
     try:
         target = float(target_vol)
@@ -105,12 +110,16 @@ def sleeve_fraction(
     invested_strong: float = 0.90,
     strong_mom: float = 0.20,
 ) -> float:
-    """Momentum sleeve × vol scale, clipped to the 80/90 book caps.
+    """Momentum sleeve × vol scale, clipped to the book caps.
 
-    Typical risk-on book sits at ``invested_on`` (~90%). Vol leverage may fill
-    up to ``invested_strong`` (~95%) only when skipped-lookback momentum is at
-    least ``strong_mom``. Risk-off stays at ``risk_off_scale`` (not half-cash)
-    and is not levered through the 95% cap.
+    Risk-on (momentum > 0) sits at ``invested_on`` (~90%) and de-risks when
+    realized vol exceeds ``target_vol``; vol scale may fill it up to
+    ``invested_strong`` (~95%) only when skipped-lookback momentum is at least
+    ``strong_mom``. Risk-off (momentum ≤ 0) stays at ``risk_off_scale`` (not
+    half-cash) and is never filled up.
+
+    The fill-up is at most ``invested_strong / invested_on`` (≈1.06 with the
+    defaults), so ``max_leverage`` values above that are effectively inert.
     """
     base = invested_fraction(
         momentum, invested_on=invested_on, risk_off_scale=risk_off_scale
@@ -431,6 +440,7 @@ class HKQualityBookStrategy(Strategy):
         max_leverage: float = 1.5,
         invested_strong: float = 0.95,
         strong_mom: float = 0.20,
+        cash_buffer: float = CASH_BUFFER,
     ) -> None:
         if lookback <= 0:
             raise ValueError("lookback must be positive")
@@ -456,6 +466,8 @@ class HKQualityBookStrategy(Strategy):
             raise ValueError("max_leverage must be >= 1")
         if strong_mom < 0:
             raise ValueError("strong_mom must be >= 0")
+        if not 0 < cash_buffer <= 1:
+            raise ValueError("cash_buffer must be in (0, 1]")
         mode = (weighting or "dual_mom").strip().lower()
         if mode not in {"inv_vol", "equal", "dual_mom"}:
             raise ValueError("weighting must be 'inv_vol', 'equal', or 'dual_mom'")
@@ -471,6 +483,7 @@ class HKQualityBookStrategy(Strategy):
         self.max_leverage = float(max_leverage)
         self.invested_strong = float(invested_strong)
         self.strong_mom = float(strong_mom)
+        self.cash_buffer = float(cash_buffer)
         self.universe = tuple(universe) if universe is not None else HK_QUALITY
         self._mom: pd.Series | None = None
         self._vol: pd.Series | None = None
@@ -540,45 +553,9 @@ class HKQualityBookStrategy(Strategy):
         self._rebalance(context, target)
 
     def _rebalance(self, context: Context, target_weights: dict[str, float]) -> None:
-        prices = context.prices
-        if not prices:
-            return
-        equity = context.portfolio.equity(prices)
-        if equity <= 0:
-            return
-
-        sells: list[tuple[str, int]] = []
-        buys: list[tuple[str, int]] = []
-        held = {s for s, p in context.portfolio.positions.items() if p.quantity > 0}
-        for symbol in set(prices) | held:
-            px = prices.get(symbol)
-            if px is None or px <= 0:
-                continue
-            target_qty = int(equity * target_weights.get(symbol, 0.0) / px)
-            current = context.position_of(symbol)
-            diff = target_qty - current
-            if diff == 0:
-                continue
-            if current > 0 and target_qty > 0 and abs(diff) / current <= self.turnover_band:
-                continue
-            if diff < 0:
-                sells.append((symbol, min(-diff, current)))
-            else:
-                buys.append((symbol, diff))
-
-        for symbol, qty in sells:
-            if qty > 0:
-                context.sell(qty, symbol=symbol)
-
-        estimated_cash = context.portfolio.cash
-        for symbol, qty in sells:
-            estimated_cash += qty * prices.get(symbol, 0.0) * (1 - 0.002)
-
-        buy_notional = sum(qty * prices[s] for s, qty in buys if s in prices)
-        if buy_notional > estimated_cash * 0.98 and buy_notional > 0:
-            scale = (estimated_cash * 0.98) / buy_notional
-            buys = [(s, int(qty * scale)) for s, qty in buys]
-
-        for symbol, qty in buys:
-            if qty > 0:
-                context.buy(qty, symbol=symbol)
+        rebalance_to_weights(
+            context,
+            target_weights,
+            turnover_band=self.turnover_band,
+            cash_buffer=self.cash_buffer,
+        )

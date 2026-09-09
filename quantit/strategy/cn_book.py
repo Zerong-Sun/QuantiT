@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from quantit.research.universes import CN_QUALITY
+from quantit.strategy.base import CASH_BUFFER
 from quantit.strategy.hk_book import HKQualityBookStrategy
 
 
@@ -29,6 +30,7 @@ class CNQualityBookStrategy(HKQualityBookStrategy):
         max_leverage: float = 1.5,
         invested_strong: float = 0.95,
         strong_mom: float = 0.20,
+        cash_buffer: float = CASH_BUFFER,
     ) -> None:
         super().__init__(
             lookback=lookback,
@@ -44,4 +46,5 @@ class CNQualityBookStrategy(HKQualityBookStrategy):
             max_leverage=max_leverage,
             invested_strong=invested_strong,
             strong_mom=strong_mom,
+            cash_buffer=cash_buffer,
         )
