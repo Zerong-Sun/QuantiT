@@ -24,23 +24,23 @@ export function KLineChart({ bars }: { bars: Bar[] }) {
     }
     const chart = createChart(host.current, {
       layout: {
-        background: { color: "#0f1419" },
-        textColor: "#9aa4b2",
+        background: { color: "#faf6ec" },
+        textColor: "#687062",
       },
       grid: {
-        vertLines: { color: "#1c2530" },
-        horzLines: { color: "#1c2530" },
+        vertLines: { color: "#c5c8b4" },
+        horzLines: { color: "#c5c8b4" },
       },
       width: host.current.clientWidth,
       height: host.current.clientHeight,
       timeScale: { timeVisible: true, secondsVisible: false },
     });
     const series = chart.addCandlestickSeries({
-      upColor: "#3dd68c",
-      downColor: "#f0616d",
+      upColor: "#687748",
+      downColor: "#b96458",
       borderVisible: false,
-      wickUpColor: "#3dd68c",
-      wickDownColor: "#f0616d",
+      wickUpColor: "#687748",
+      wickDownColor: "#b96458",
     });
     chartRef.current = chart;
     seriesRef.current = series;

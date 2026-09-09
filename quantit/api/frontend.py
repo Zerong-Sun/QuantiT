@@ -13,13 +13,15 @@ _FALLBACK = """<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <title>QuantiT Paper Terminal</title>
+    <title>QuantiT · Paper Terminal</title>
     <style>
-      body { font: 15px/1.5 -apple-system, sans-serif; background: #0b0f14; color: #e7ecf3;
+      body { font: 15px/1.5 -apple-system, sans-serif; background: #f3efe3; color: #202a20;
              max-width: 40rem; margin: 12vh auto; padding: 0 1.5rem; }
-      code { background: #1b2430; padding: 2px 6px; border-radius: 4px; }
-      pre { background: #121821; padding: 1rem; border-radius: 8px; overflow: auto; }
-      a { color: #4da3ff; }
+      h1 { font-family: Georgia, serif; }
+      code { background: #ddd1b8; padding: 2px 6px; border-radius: 4px; }
+      pre { background: #faf6ec; border: 2px solid #202a20; padding: 1rem; border-radius: 8px; overflow: auto;
+            box-shadow: 6px 8px 0 rgba(32, 42, 32, 0.18); }
+      a { color: #438fd8; }
     </style>
   </head>
   <body>

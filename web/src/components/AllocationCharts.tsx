@@ -1,4 +1,4 @@
-const PALETTE = ["#4da3ff", "#3dd68c", "#f0c14b", "#c084fc", "#f0616d", "#5eead4", "#fb923c", "#818cf8"];
+const PALETTE = ["#b96458", "#438fd8", "#d2b85e", "#72b5bc", "#687748", "#a98aaa", "#d99a88", "#8a9180"];
 
 export type Slice = { label: string; value: number; color: string };
 
@@ -37,7 +37,7 @@ export function DonutChart({ slices, empty }: { slices: Slice[]; empty: string }
   return (
     <div className="donut-wrap">
       <svg viewBox="0 0 160 160" className="donut">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#1c2530" strokeWidth="22" />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#ddd1b8" strokeWidth="22" />
         {rings.map((s) =>
           s.sweep >= 359.9 ? (
             <circle key={s.label} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth="22" />
