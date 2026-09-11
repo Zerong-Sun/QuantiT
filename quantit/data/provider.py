@@ -36,7 +36,9 @@ class YahooFinanceProvider(DataProvider):
 
         ticker = yf.Ticker(symbol)
         try:
-            df = ticker.history(start=start, end=end, interval=interval, auto_adjust=True)
+            df = ticker.history(
+                start=start, end=end, interval=interval, auto_adjust=True, timeout=15
+            )
         except Exception as exc:
             raise ValueError(f"No data returned for {symbol} ({start} to {end}): {exc}") from exc
 

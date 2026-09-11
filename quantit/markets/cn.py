@@ -137,25 +137,35 @@ class AkShareCNProvider(DataProvider):
         start_ts = pd.Timestamp(start)
         end_ts = pd.Timestamp(end)
 
-        if interval == "1d":
-            raw = self._daily_raw(ak, code, start_ts, end_ts)
+        try:
+            if interval == "1d":
+                raw = self._daily_raw(ak, code, start_ts, end_ts)
+                if raw is None or raw.empty:
+                    raise ValueError(f"No data returned for {symbol} ({start} to {end})")
+                return self._daily_frame(raw)
+
+            period = self._MINUTE.get(interval)
+            if period is None:
+                raise ValueError(f"Unsupported A-share interval: {interval}")
+            raw = ak.stock_zh_a_hist_min_em(
+                symbol=code,
+                start_date=start_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                end_date=end_ts.strftime("%Y-%m-%d %H:%M:%S"),
+                period=period,
+                adjust="qfq",
+            )
             if raw is None or raw.empty:
                 raise ValueError(f"No data returned for {symbol} ({start} to {end})")
-            return self._daily_frame(raw)
-
-        period = self._MINUTE.get(interval)
-        if period is None:
-            raise ValueError(f"Unsupported A-share interval: {interval}")
-        raw = ak.stock_zh_a_hist_min_em(
-            symbol=code,
-            start_date=start_ts.strftime("%Y-%m-%d %H:%M:%S"),
-            end_date=end_ts.strftime("%Y-%m-%d %H:%M:%S"),
-            period=period,
-            adjust="qfq",
-        )
-        if raw is None or raw.empty:
-            raise ValueError(f"No data returned for {symbol} ({start} to {end})")
-        return self._minute_frame(raw)
+            return self._minute_frame(raw)
+        except ValueError:
+            raise
+        except Exception as exc:
+            # Eastmoney / proxy / network failures surface as ValueError so
+            # callers (CompositeCNProvider, FailoverProvider, DataLoader)
+            # degrade to the CSV/Yahoo fallback instead of silently skipping.
+            raise ValueError(
+                f"A-share data unavailable for {symbol}: {type(exc).__name__}: {exc}"
+            ) from exc
 
     def _daily_raw(self, ak, code: str, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> pd.DataFrame | None:
         start_s = start_ts.strftime("%Y%m%d")
@@ -179,6 +189,7 @@ class AkShareCNProvider(DataProvider):
             start_date=start_s,
             end_date=end_s,
             adjust="qfq",
+            timeout=15,
         )
 
     @staticmethod

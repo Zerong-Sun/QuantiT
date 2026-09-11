@@ -33,6 +33,7 @@ from quantit.strategy.hk_book import HKQualityBookStrategy, quality_name_targets
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights
 from quantit.strategy.signals import evaluate_signals, ma_signal, resolve_us_book_action, rsi_signal
 from quantit.strategy.tsmom import coerce_vol, tsmom_size
+from quantit.utils.concurrency import parallel_map
 
 
 def load_hk_theme_scores() -> pd.DataFrame | None:
@@ -62,13 +63,14 @@ def load_cn_theme_scores() -> pd.DataFrame | None:
     from quantit.data.cn_csv import CompositeCNProvider
     from quantit.data.loader import DataLoader
     from quantit.data.macro import MacroLoader
+    from quantit.data.provider import FailoverProvider, YahooFinanceProvider
     from quantit.features.cn_regime import compute_cn_etf_scores
     from quantit.policy.calendar import PolicyCalendar
 
     end = pd.Timestamp.utcnow().strftime("%Y-%m-%d")
     start = (pd.Timestamp.utcnow() - pd.Timedelta(days=420)).strftime("%Y-%m-%d")
     symbols = list(dict.fromkeys([*all_cn_etf_symbols(), CN_ETF_FALLBACK]))
-    loader = DataLoader(provider=CompositeCNProvider())
+    loader = DataLoader(provider=FailoverProvider(CompositeCNProvider(), YahooFinanceProvider()))
     ohlcv = loader.load_multi(symbols, start, end, skip_missing=True)
     if not ohlcv:
         return None
@@ -298,6 +300,36 @@ class PaperRunner:
     def _us_is_quality_watch(self) -> bool:
         return bool(self.us_watch) and set(self.us_watch) == set(US_QUALITY)
 
+    def _bars_map(self, adapter, symbols, start, end) -> dict[str, pd.DataFrame]:
+        """Fetch daily bars for ``symbols`` concurrently, dropping failures."""
+        def one(sym: str) -> pd.DataFrame | None:
+            try:
+                bars = adapter.fetch_bars(sym, "1d", start, end)
+            except (ValueError, KeyError):
+                return None
+            return bars if bars is not None and not bars.empty else None
+
+        out: dict[str, pd.DataFrame] = {}
+        for sym, bars in zip(symbols, parallel_map(one, symbols)):
+            if bars is not None:
+                out[sym] = bars
+        return out
+
+    def _quotes_map(self, adapter, symbols) -> dict[str, float]:
+        """Fetch last quotes for ``symbols`` concurrently; map to positive last prices."""
+        def one(sym: str) -> float | None:
+            try:
+                q = adapter.fetch_quote(sym)
+            except (ValueError, KeyError):
+                return None
+            return q.last if q.last > 0 else None
+
+        out: dict[str, float] = {}
+        for sym, price in zip(symbols, parallel_map(one, symbols)):
+            if price is not None:
+                out[sym] = price
+        return out
+
     def _tick_us(self, force: bool = False) -> list[dict[str, Any]]:
         if not self.us_watch:
             return []
@@ -408,16 +440,9 @@ class PaperRunner:
         adapter = self.broker.adapter_for("us")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=500)
-        ohlcv: dict[str, pd.DataFrame] = {}
+        ohlcv = self._bars_map(adapter, US_QUALITY, start, end)
         calendar = None
-        for symbol in US_QUALITY:
-            try:
-                bars = adapter.fetch_bars(symbol, "1d", start, end)
-            except (ValueError, KeyError):
-                continue
-            if bars is None or bars.empty:
-                continue
-            ohlcv[symbol] = bars
+        for bars in ohlcv.values():
             calendar = bars.index if calendar is None else calendar.union(bars.index)
         if not ohlcv or calendar is None:
             return []
@@ -430,14 +455,7 @@ class PaperRunner:
         cfg = strategy_params("tsmom")
         defaults = HKQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices: dict[str, float] = {}
-        for symbol in US_QUALITY:
-            try:
-                q = adapter.fetch_quote(symbol)
-            except (ValueError, KeyError):
-                continue
-            if q.last > 0:
-                prices[symbol] = q.last
+        prices = self._quotes_map(adapter, US_QUALITY)
         quoted = [s for s in US_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("us")
@@ -474,17 +492,17 @@ class PaperRunner:
         adapter = self.broker.adapter_for("us_book")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=400)
+        now = self.broker.now()
+        symbols = [
+            s for s in US_QUALITY
+            if (force or not self._already("us_book", s)) and self._due("us_book", s, now, force)
+        ]
+        bars_by_symbol = self._bars_map(adapter, symbols, start, end)
         out: list[dict[str, Any]] = []
-        for symbol in US_QUALITY:
-            if not force and self._already("us_book", symbol):
-                continue
-            now = self.broker.now()
-            if not self._due("us_book", symbol, now, force):
-                continue
+        for symbol in symbols:
             self._note_eval("us_book", symbol, now)
-            try:
-                bars = adapter.fetch_bars(symbol, "1d", start, end)
-            except (ValueError, KeyError):
+            bars = bars_by_symbol.get(symbol)
+            if bars is None:
                 continue
             book = resolve_us_book_action(ma_signal(bars), rsi_signal(bars))
             if book["action"] not in {"buy", "sell"}:
@@ -593,17 +611,17 @@ class PaperRunner:
         adapter = self.broker.adapter_for("hk_theme")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=400)
+        now = self.broker.now()
+        symbols = [
+            s for s in self.hk_warrants
+            if (force or not self._already("hk_theme", s)) and self._due("hk_theme", s, now, force)
+        ]
+        bars_by_symbol = self._bars_map(adapter, symbols, start, end)
         out: list[dict[str, Any]] = []
-        for symbol in self.hk_warrants:
-            if not force and self._already("hk_theme", symbol):
-                continue
-            now = self.broker.now()
-            if not self._due("hk_theme", symbol, now, force):
-                continue
+        for symbol in symbols:
             self._note_eval("hk_theme", symbol, now)
-            try:
-                bars = adapter.fetch_bars(symbol, "1d", start, end)
-            except (ValueError, KeyError):
+            bars = bars_by_symbol.get(symbol)
+            if bars is None:
                 continue
             book = resolve_us_book_action(ma_signal(bars), rsi_signal(bars))
             if book["action"] not in {"buy", "sell"}:
@@ -689,14 +707,7 @@ class PaperRunner:
             equal_weight_band=strat.equal_weight_band,
         )
         members = list(all_hstech_symbols()) + list(self.hk_etfs)
-        prices: dict[str, float] = {}
-        for symbol in members:
-            try:
-                q = adapter.fetch_quote(symbol)
-            except (ValueError, KeyError):
-                continue
-            if q.last > 0:
-                prices[symbol] = q.last
+        prices = self._quotes_map(adapter, members)
         target = strat._expand_to_symbols(theme_w, prices)
         account = self.broker.get_account("hk_theme")
         equity = account.cash
@@ -727,16 +738,9 @@ class PaperRunner:
         adapter = self.broker.adapter_for("hk")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=500)
-        ohlcv: dict[str, pd.DataFrame] = {}
+        ohlcv = self._bars_map(adapter, HK_QUALITY, start, end)
         calendar = None
-        for symbol in HK_QUALITY:
-            try:
-                bars = adapter.fetch_bars(symbol, "1d", start, end)
-            except (ValueError, KeyError):
-                continue
-            if bars is None or bars.empty:
-                continue
-            ohlcv[symbol] = bars
+        for bars in ohlcv.values():
             calendar = bars.index if calendar is None else calendar.union(bars.index)
         if not ohlcv or calendar is None:
             return []
@@ -749,14 +753,7 @@ class PaperRunner:
         cfg = strategy_params("hk_quality_book")
         defaults = HKQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices: dict[str, float] = {}
-        for symbol in HK_QUALITY:
-            try:
-                q = adapter.fetch_quote(symbol)
-            except (ValueError, KeyError):
-                continue
-            if q.last > 0:
-                prices[symbol] = q.last
+        prices = self._quotes_map(adapter, HK_QUALITY)
         quoted = [s for s in HK_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("hk")
@@ -842,14 +839,7 @@ class PaperRunner:
             equal_weight_band=strat.equal_weight_band,
         )
         members = list(all_cn_etf_symbols()) + [CN_ETF_FALLBACK]
-        prices: dict[str, float] = {}
-        for symbol in members:
-            try:
-                q = adapter.fetch_quote(symbol)
-            except (ValueError, KeyError):
-                continue
-            if q.last > 0:
-                prices[symbol] = q.last
+        prices = self._quotes_map(adapter, members)
         target = strat._expand_to_symbols(theme_w, prices)
         account = self.broker.get_account("cn_etf")
         equity = account.cash
@@ -883,16 +873,9 @@ class PaperRunner:
         adapter = self.broker.adapter_for("cn")
         end = pd.Timestamp(self.broker.now())
         start = end - pd.Timedelta(days=500)
-        ohlcv: dict[str, pd.DataFrame] = {}
+        ohlcv = self._bars_map(adapter, CN_QUALITY, start, end)
         calendar = None
-        for symbol in CN_QUALITY:
-            try:
-                bars = adapter.fetch_bars(symbol, "1d", start, end)
-            except (ValueError, KeyError):
-                continue
-            if bars is None or bars.empty:
-                continue
-            ohlcv[symbol] = bars
+        for bars in ohlcv.values():
             calendar = bars.index if calendar is None else calendar.union(bars.index)
         if not ohlcv or calendar is None:
             return []
@@ -905,14 +888,7 @@ class PaperRunner:
         cfg = strategy_params("cn_quality_book")
         defaults = CNQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices: dict[str, float] = {}
-        for symbol in CN_QUALITY:
-            try:
-                q = adapter.fetch_quote(symbol)
-            except (ValueError, KeyError):
-                continue
-            if q.last > 0:
-                prices[symbol] = q.last
+        prices = self._quotes_map(adapter, CN_QUALITY)
         quoted = [s for s in CN_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("cn")

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from quantit.data.loader import DataLoader
+from quantit.utils.concurrency import parallel_map
 
 DEFAULT_MACRO_SYMBOLS: dict[str, str] = {
     "dxy": "DX-Y.NYB",
@@ -54,20 +55,27 @@ class MacroLoader:
         forward-filled. Missing Yahoo symbols are skipped when ``skip_missing``.
         """
         mapping = symbols or DEFAULT_MACRO_SYMBOLS
-        columns: dict[str, pd.Series] = {}
-        skipped: list[str] = []
-        for name, yahoo in mapping.items():
+        items = list(mapping.items())
+
+        def _one(item: tuple[str, str]):
+            name, yahoo = item
             try:
                 df = self.loader.load(yahoo, start, end)
-            except (ValueError, Exception):
+            except Exception as exc:  # noqa: BLE001 - reported to caller below
+                return name, yahoo, None, exc
+            if df.empty or "close" not in df.columns:
+                return name, yahoo, None, ValueError(f"No close for {yahoo}")
+            return name, yahoo, df["close"].rename(name), None
+
+        columns: dict[str, pd.Series] = {}
+        skipped: list[str] = []
+        for name, yahoo, series, err in parallel_map(_one, items):
+            if err is not None:
                 if skip_missing:
                     skipped.append(yahoo)
                     continue
-                raise
-            if df.empty or "close" not in df.columns:
-                skipped.append(yahoo)
-                continue
-            columns[name] = df["close"].rename(name)
+                raise err
+            columns[name] = series
 
         if not columns:
             frame = pd.DataFrame()

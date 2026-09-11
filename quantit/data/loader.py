@@ -8,6 +8,7 @@ import pandas as pd
 
 from quantit.data.cache import DataCache
 from quantit.data.provider import DataProvider, YahooFinanceProvider
+from quantit.utils.concurrency import parallel_map
 
 
 class DataLoader:
@@ -119,17 +120,25 @@ class DataLoader:
         interval: str = "1d",
         skip_missing: bool = False,
     ) -> dict[str, pd.DataFrame]:
-        """Load data for multiple symbols.
+        """Load data for multiple symbols concurrently.
 
         When ``skip_missing`` is true, symbols that fail to fetch are omitted
         instead of raising.
         """
-        result: dict[str, pd.DataFrame] = {}
-        for sym in symbols:
+
+        def _one(sym: str) -> tuple[str, pd.DataFrame | None, Exception | None]:
             try:
-                result[sym] = self.load(sym, start, end, interval)
-            except Exception:
+                return sym, self.load(sym, start, end, interval), None
+            except Exception as exc:  # noqa: BLE001 - reported to caller below
+                return sym, None, exc
+
+        result: dict[str, pd.DataFrame] = {}
+        # Each symbol writes to its own Parquet file, so concurrent loads are
+        # safe (no shared mutable cache state within a single symbol).
+        for sym, df, err in parallel_map(_one, symbols):
+            if err is not None:
                 if skip_missing:
                     continue
-                raise
+                raise err
+            result[sym] = df
         return result

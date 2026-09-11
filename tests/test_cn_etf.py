@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from quantit.data.cn_csv import CompositeCNProvider, CsvETFProvider, default_cn_etf_csv
-from quantit.data.provider import DataProvider
+from quantit.data.provider import DataProvider, FailoverProvider
 from quantit.engine.backtester import Backtester
 from quantit.features.cn_regime import compute_cn_etf_scores
 from quantit.markets.assets import asset_class, is_allowed
@@ -149,6 +149,29 @@ class TestCompositeProvider:
         overlap = df.loc["2024-06-03":"2024-06-05"]
         assert overlap["close"].iloc[0] == pytest.approx(0.91)
         assert overlap["close"].iloc[-1] == pytest.approx(0.95)
+
+    def test_stale_csv_with_failed_live_raises(self) -> None:
+        # A stale CSV that does not cover the request window, combined with a
+        # failing live source, must raise (so FailoverProvider reaches Yahoo)
+        # instead of silently returning the stale slice.
+        live = FakeProvider({}, fail={"510300.SS"})
+        composite = CompositeCNProvider(csv=CsvETFProvider(path=FIXTURE), live=live)
+        with pytest.raises(ValueError):
+            composite.fetch("510300.SS", "2024-05-01", "2024-06-07")
+
+    def test_stale_csv_falls_back_to_yahoo(self) -> None:
+        # The production chain used by CNAdapter and load_cn_theme_scores:
+        # stale CSV + down AkShare must hand the request to Yahoo, not return
+        # the stale slice.
+        ak = FakeProvider({}, fail={"510300.SS"})
+        yahoo = FakeProvider({"510300.SS": _ohlcv(n=3, start="2024-06-03", start_price=9.0)})
+        chain = FailoverProvider(
+            CompositeCNProvider(csv=CsvETFProvider(path=FIXTURE), live=ak),
+            yahoo,
+        )
+        df = chain.fetch("510300.SS", "2024-05-01", "2024-06-07")
+        assert yahoo.calls == [("510300.SS", "1d")]
+        assert df["close"].iloc[0] == pytest.approx(9.0)
 
     def test_minutes_go_to_live(self) -> None:
         live = FakeProvider({"510300.SS": _ohlcv(n=3, start="2024-06-03")})

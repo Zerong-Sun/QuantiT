@@ -138,12 +138,12 @@ class CompositeCNProvider(DataProvider):
         if self._covers(csv_df, start_ts, end_ts):
             return csv_df
 
-        try:
-            live_df = self.live.fetch(symbol, start, end, interval)
-        except ValueError:
-            if csv_df is not None and not csv_df.empty:
-                return csv_df
-            raise
+        # The CSV does not cover the request window, so ask the live source
+        # (AkShare/Eastmoney). If it fails, propagate the error instead of
+        # silently returning the stale CSV slice: an outer FailoverProvider
+        # would treat a non-empty frame as "primary succeeded" and never reach
+        # its Yahoo fallback, freezing the book at the CSV's last date.
+        live_df = self.live.fetch(symbol, start, end, interval)
 
         if csv_df is None or csv_df.empty:
             return live_df
