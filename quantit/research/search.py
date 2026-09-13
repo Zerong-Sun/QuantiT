@@ -9,8 +9,23 @@ import pandas as pd
 from quantit.analysis.metrics import compute_metrics
 from quantit.engine.backtester import Backtester
 from quantit.engine.broker import Order
+from quantit.markets.cn import CN_PROFILE
 from quantit.research.specs import get_spec
 from quantit.strategy.base import Context, Strategy
+
+CN_RESEARCH_STRATEGIES = frozenset({"cn_quality_book", "cn_etf_rotation"})
+
+
+def research_cost_kwargs(strategy_id: str) -> dict[str, Any]:
+    """Venue-aware fill costs. CN studies use paper CN_PROFILE; US/HK keep config defaults."""
+    if strategy_id in CN_RESEARCH_STRATEGIES:
+        return {
+            "commission_rate": CN_PROFILE.commission_rate,
+            "slippage_rate": CN_PROFILE.slippage_rate,
+            "stamp_duty_rate": CN_PROFILE.stamp_duty_rate,
+            "venue": "cn",
+        }
+    return {}
 
 
 class BuyAndHoldStrategy(Strategy):
@@ -131,6 +146,8 @@ def run_backtest(
     fill_on: str | None = None,
     slippage_rate: float | None = None,
     commission_rate: float | None = None,
+    stamp_duty_rate: float | None = None,
+    venue: str | None = None,
 ) -> dict[str, Any]:
     spec = get_spec(strategy_id)
     if spec.kind == "multi":
@@ -145,11 +162,14 @@ def run_backtest(
         strategy = spec.builder(**params)
     if active_from is not None:
         strategy = DelayedStart(strategy, active_from)
+    costs = research_cost_kwargs(strategy_id)
     engine = Backtester(
         initial_cash=initial_cash,
         fill_on=fill_on,
-        slippage_rate=slippage_rate,
-        commission_rate=commission_rate,
+        slippage_rate=slippage_rate if slippage_rate is not None else costs.get("slippage_rate"),
+        commission_rate=commission_rate if commission_rate is not None else costs.get("commission_rate"),
+        stamp_duty_rate=stamp_duty_rate if stamp_duty_rate is not None else costs.get("stamp_duty_rate"),
+        venue=venue if venue is not None else costs.get("venue"),
     )
     result = engine.run(strategy, data, symbol=symbol)
     start = pd.Timestamp(metric_start).to_pydatetime() if metric_start is not None else None
@@ -162,15 +182,13 @@ def buy_and_hold_metrics(
     data: pd.DataFrame | dict[str, pd.DataFrame],
     symbol: str,
     initial_cash: float = 100_000.0,
+    **cost_kwargs: Any,
 ) -> dict[str, float]:
+    engine = Backtester(initial_cash=initial_cash, **cost_kwargs)
     if isinstance(data, dict):
-        result = Backtester(initial_cash=initial_cash).run(
-            EqualWeightHold(), data, symbol=symbol
-        )
+        result = engine.run(EqualWeightHold(), data, symbol=symbol)
     else:
-        result = Backtester(initial_cash=initial_cash).run(
-            BuyAndHoldStrategy(), data, symbol=symbol
-        )
+        result = engine.run(BuyAndHoldStrategy(), data, symbol=symbol)
     return compute_metrics(result)
 
 

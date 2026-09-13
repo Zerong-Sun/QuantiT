@@ -15,6 +15,7 @@ from quantit.research.search import (
     buy_and_hold_metrics,
     calendar_index,
     grid_search,
+    research_cost_kwargs,
     run_backtest,
     slice_by_dates,
 )
@@ -134,7 +135,7 @@ def walk_forward(
                 metric_end=test_end,
                 active_from=test_start,
             )
-            bh = buy_and_hold_metrics(test_data, symbol, initial_cash)
+            bh = buy_and_hold_metrics(test_data, symbol, initial_cash, **research_cost_kwargs(strategy_id))
         except (ValueError, KeyError):
             continue
         ub_metrics: dict[str, float] = {}

@@ -51,12 +51,16 @@ class Backtester:
         commission_rate: float | None = None,
         slippage_rate: float | None = None,
         fill_on: str | None = None,
+        stamp_duty_rate: float | None = None,
+        venue: str | None = None,
     ) -> None:
         config = get_config()
         self.initial_cash = initial_cash if initial_cash is not None else config.initial_cash
         self.commission_rate = commission_rate
         self.slippage_rate = slippage_rate
         self.fill_on = fill_on if fill_on is not None else config.fill_on
+        self.stamp_duty_rate = stamp_duty_rate
+        self.venue = venue
         if self.fill_on not in {"next_open", "same_close"}:
             raise ValueError("fill_on must be 'next_open' or 'same_close'")
 
@@ -82,6 +86,8 @@ class Backtester:
             commission_rate=self.commission_rate,
             slippage_rate=self.slippage_rate,
             fill_on=self.fill_on,
+            stamp_duty_rate=self.stamp_duty_rate,
+            venue=self.venue,
         )
 
     def _run_single(

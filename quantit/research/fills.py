@@ -21,9 +21,9 @@ def compare_fill_models(
 ) -> dict[str, Any]:
     """Run the same params on next_open (walk-forward defaults) vs same_close+slip (paper).
 
-    The research arm leaves commission/slippage at config defaults, matching
-    ``walk_forward`` / ``run_backtest(initial_cash=...)``. The paper arm only
-    changes fill timing and venue slippage.
+    The research arm uses the same costs as ``walk_forward`` / ``run_backtest``
+    (config defaults, or CN_PROFILE buy/sell+stamp for CN studies). The paper
+    arm only changes fill timing and venue slippage.
     """
     research = run_backtest(
         strategy_id,
