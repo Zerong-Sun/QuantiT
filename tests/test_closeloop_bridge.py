@@ -178,6 +178,49 @@ def test_dump_step_can_trade_when_gates_pass(tmp_path, monkeypatch) -> None:
     assert broker.get_position("cl", "SH600000") is not None
 
 
+def test_dump_step_no_fills_when_gates_fail(tmp_path, monkeypatch) -> None:
+    """Paper / Closeloop step: gate fail (no passed factors) ⇒ empty ``cl`` fills.
+
+    Guarded entrypoints are ``LoopWorker._step_and_notify`` (``on_target``) and
+    ``POST /api/v1/closeloop/step``. ``apply_target_book`` itself does not re-check
+    ``passed``; this test locks the path paper trading actually uses.
+    """
+    from quantit.api.app import create_app
+    from closeloop.validate.gates import GateReport
+
+    registry, dest = _dump(tmp_path)
+    session = create_session("sqlite:///:memory:")
+    broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+    worker = LoopWorker(artifacts_dir=tmp_path / "art", data_dir=dest, force_fixture=False)
+    fake = GateReport(False, 0.0, 0.1, -0.01, 0.5, ["|IC mean| 0.0000 < 0.02"])
+    monkeypatch.setattr("closeloop.loop.worker.evaluate_spec", lambda *a, **k: fake)
+    app = create_app(broker=broker, registry=registry, closeloop_worker=worker)
+    client = TestClient(app)
+    us_cash = broker.get_account("us").cash
+    us_book_cash = broker.get_account("us_book").cash
+    hk_cash = broker.get_account("hk").cash
+    hk_theme_cash = broker.get_account("hk_theme").cash
+    cn_cash = broker.get_account("cn").cash
+    cn_etf_cash = broker.get_account("cn_etf").cash
+    cl_cash = broker.get_account("cl").cash
+    body = client.post("/api/v1/closeloop/step").json()
+    assert body.get("last_error") in (None, "")
+    assert body["source"] == "qlib_dump"
+    assert body["can_trade"] is True
+    assert body["passed"] is False
+    assert body.get("target") is None
+    assert body.get("fills") == []
+    assert broker.get_position("cl", "SH600000") is None
+    assert broker.list_positions("cl") == []
+    assert broker.get_account("cl").cash == pytest.approx(cl_cash)
+    assert broker.get_account("us").cash == pytest.approx(us_cash)
+    assert broker.get_account("us_book").cash == pytest.approx(us_book_cash)
+    assert broker.get_account("hk").cash == pytest.approx(hk_cash)
+    assert broker.get_account("hk_theme").cash == pytest.approx(hk_theme_cash)
+    assert broker.get_account("cn").cash == pytest.approx(cn_cash)
+    assert broker.get_account("cn_etf").cash == pytest.approx(cn_etf_cash)
+
+
 def test_markets_include_cl_when_adapter_registered(tmp_path) -> None:
     from quantit.api.app import create_app
 
