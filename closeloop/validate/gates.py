@@ -59,7 +59,10 @@ def _quantile_spread(clean: CleanFactor, period: int) -> float:
     means = frame.groupby("factor_quantile")[period].mean()
     if means.empty:
         return float("nan")
-    return float(means.loc[means.index.max()] - means.loc[means.index.min()])
+    # Cast before subtract: numpy scalar inf−inf / nan−nan warns; outcome is unchanged.
+    high = float(means.loc[means.index.max()])
+    low = float(means.loc[means.index.min()])
+    return high - low
 
 
 def _turnover(clean: CleanFactor) -> float:
