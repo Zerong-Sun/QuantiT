@@ -129,7 +129,7 @@ def rebalance_to_weights(
 
     estimated_cash = context.portfolio.cash
     for symbol, qty in sells:
-        estimated_cash += qty * prices.get(symbol, 0.0) * (1 - context.broker.sell_cost_ratio)
+        estimated_cash += qty * prices.get(symbol, 0.0) * (1 - context.broker.sell_cost_ratio_for(symbol))
 
     buy_notional = sum(qty * prices[s] for s, qty in buys if s in prices)
     if buy_notional > estimated_cash * cash_buffer and buy_notional > 0:

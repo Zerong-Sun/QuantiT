@@ -79,8 +79,15 @@ class Broker:
 
     @property
     def sell_cost_ratio(self) -> float:
-        """Estimated one-way sell cost (slippage + commission [+ CN stamp]) as a fraction of notional."""
+        """Estimated one-way sell cost without a symbol (slippage + commission + stamp)."""
         return float(self.slippage_rate) + float(self.commission_rate) + float(self.stamp_duty_rate)
+
+    def sell_cost_ratio_for(self, symbol: str) -> float:
+        """Per-symbol sell friction matching fill semantics (CN ETFs are stamp-exempt)."""
+        rate = float(self.slippage_rate) + float(self.commission_rate)
+        if self.venue == "cn" and asset_class("cn", symbol) == "equity":
+            rate += float(self.stamp_duty_rate)
+        return rate
 
     def _fill_rate(self, order: Order) -> float:
         """Paper CN schedule: buy = commission; equity sell = commission + stamp; ETFs stamp-exempt."""

@@ -87,6 +87,14 @@ class TestCNResearchFills:
         assert sell.commission == pytest.approx(notional * 0.0003)
         assert sell.commission != pytest.approx(notional * 0.0008)
 
+    def test_cn_etf_sell_sizing_excludes_stamp(self) -> None:
+        broker = _cn_broker()
+        slip_comm = CN_PROFILE.slippage_rate + CN_PROFILE.commission_rate
+        assert broker.sell_cost_ratio_for("510300.SS") == pytest.approx(slip_comm)
+        assert broker.sell_cost_ratio_for("600519.SS") == pytest.approx(
+            slip_comm + CN_PROFILE.stamp_duty_rate
+        )
+
 
 class TestDefaultResearchFills:
     def test_default_path_still_charges_bilateral_config_commission(self) -> None:
@@ -197,6 +205,30 @@ class TestResearchCostWiring:
             assert trade.commission == pytest.approx(trade.price * trade.quantity * rate)
             if trade.side == OrderSide.SELL:
                 assert trade.commission != pytest.approx(trade.price * trade.quantity * 0.0008)
+
+    def test_buy_and_hold_metrics_dict_ohlcv_smoke(self) -> None:
+        from quantit.research.search import buy_and_hold_metrics
+
+        dates = pd.date_range("2018-01-01", periods=30, freq="B")
+        prices = [50.0 + i * 0.1 for i in range(30)]
+        frame = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 0.2 for p in prices],
+                "low": [p - 0.2 for p in prices],
+                "close": prices,
+                "volume": [1_000_000.0] * 30,
+            },
+            index=dates,
+        )
+        metrics = buy_and_hold_metrics(
+            {"AAA": frame, "BBB": frame.copy()},
+            "BASKET",
+            initial_cash=100_000.0,
+        )
+        assert "sharpe_ratio" in metrics
+        assert "max_drawdown" in metrics
+        assert metrics["total_trades"] >= 1
 
     def test_buy_and_hold_metrics_multi_asset_uses_EqualWeightHold(self) -> None:
         import inspect
