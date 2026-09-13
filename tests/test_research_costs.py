@@ -22,6 +22,11 @@ def _cn_broker(cash: float = 1_000_000.0) -> Broker:
 
 
 class TestCNResearchFills:
+    def test_cn_profile_is_3bp_commission_5bp_stamp_5bp_slip(self) -> None:
+        assert CN_PROFILE.commission_rate == pytest.approx(0.0003)
+        assert CN_PROFILE.stamp_duty_rate == pytest.approx(0.0005)
+        assert CN_PROFILE.slippage_rate == pytest.approx(0.0005)
+
     def test_cn_buy_commission_is_profile_rate_without_stamp(self) -> None:
         broker = _cn_broker()
         price = 10.0
@@ -30,8 +35,12 @@ class TestCNResearchFills:
         assert order.status == OrderStatus.FILLED
         fill = price * (1 + CN_PROFILE.slippage_rate)
         notional = fill * qty
+        assert order.fill_price == pytest.approx(fill)
         assert order.commission == pytest.approx(notional * CN_PROFILE.commission_rate)
         assert order.commission == pytest.approx(notional * 0.0003)
+        # Not the old bilateral 10 bp proxy, and not a flat 8 bp (3+5) both ways.
+        assert order.commission != pytest.approx(notional * 0.001)
+        assert order.commission != pytest.approx(notional * 0.0008)
 
     def test_cn_equity_sell_commission_adds_stamp(self) -> None:
         broker = _cn_broker()
@@ -44,8 +53,25 @@ class TestCNResearchFills:
         fill = price * (1 - CN_PROFILE.slippage_rate)
         notional = fill * qty
         expected_rate = CN_PROFILE.commission_rate + CN_PROFILE.stamp_duty_rate
+        assert sell.fill_price == pytest.approx(fill)
         assert sell.commission == pytest.approx(notional * expected_rate)
         assert sell.commission == pytest.approx(notional * (0.0003 + 0.0005))
+        assert sell.commission != pytest.approx(notional * 0.0003)
+        assert sell.commission != pytest.approx(notional * 0.001)
+
+    def test_cn_buy_and_sell_are_asymmetric_not_bilateral_proxy(self) -> None:
+        broker = _cn_broker()
+        price = 10.0
+        qty = 100
+        buy = broker.buy("600519.SS", qty, price, pd.Timestamp("2024-06-10"))
+        sell = broker.sell("600519.SS", qty, price, pd.Timestamp("2024-06-11"))
+        buy_notional = buy.fill_price * qty
+        sell_notional = sell.fill_price * qty
+        buy_rate = buy.commission / buy_notional
+        sell_rate = sell.commission / sell_notional
+        assert buy_rate == pytest.approx(0.0003)
+        assert sell_rate == pytest.approx(0.0008)
+        assert sell_rate > buy_rate
 
     def test_cn_etf_sell_is_stamp_exempt(self) -> None:
         broker = _cn_broker()
@@ -59,6 +85,7 @@ class TestCNResearchFills:
         notional = fill * qty
         assert sell.commission == pytest.approx(notional * CN_PROFILE.commission_rate)
         assert sell.commission == pytest.approx(notional * 0.0003)
+        assert sell.commission != pytest.approx(notional * 0.0008)
 
 
 class TestDefaultResearchFills:
@@ -139,3 +166,48 @@ class TestResearchCostWiring:
             assert trade.commission == pytest.approx(trade.price * trade.quantity * 0.0003)
         for trade in sells:
             assert trade.commission == pytest.approx(trade.price * trade.quantity * (0.0003 + 0.0005))
+
+    def test_run_backtest_tsmom_keeps_bilateral_10bp(self) -> None:
+        from quantit.engine.broker import OrderSide
+        from quantit.research.search import run_backtest
+
+        dates = pd.date_range("2018-01-01", periods=80, freq="B")
+        prices = [100.0 * (1.002 ** i) for i in range(80)]
+        data = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 0.3 for p in prices],
+                "low": [p - 0.3 for p in prices],
+                "close": prices,
+                "volume": [1_000_000.0] * 80,
+            },
+            index=dates,
+        )
+        row = run_backtest(
+            "tsmom",
+            {"lookback": 40, "skip": 5, "target_vol": 0.15, "vol_lookback": 10},
+            data,
+            symbol="AAA",
+            initial_cash=100_000.0,
+        )
+        trades = row["result"].trades
+        assert trades
+        for trade in trades:
+            rate = 0.001
+            assert trade.commission == pytest.approx(trade.price * trade.quantity * rate)
+            if trade.side == OrderSide.SELL:
+                assert trade.commission != pytest.approx(trade.price * trade.quantity * 0.0008)
+
+    def test_report_gate_defaults_unchanged(self) -> None:
+        import inspect
+
+        from quantit.research.gates import evaluate_gates, evaluate_promote_gates
+
+        report = inspect.signature(evaluate_gates)
+        assert report.parameters["min_sharpe"].default == 0.0
+        assert report.parameters["max_drawdown"].default == -0.25
+        assert report.parameters["min_trades"].default == 4.0
+        promote = inspect.signature(evaluate_promote_gates)
+        assert promote.parameters["min_sharpe"].default == 0.0
+        assert promote.parameters["max_drawdown"].default == -0.25
+        assert promote.parameters["min_trades"].default == 4.0
