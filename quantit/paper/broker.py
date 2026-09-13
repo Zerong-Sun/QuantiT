@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from quantit.markets.assets import allowed_list, asset_class, is_allowed, multiplier
 from quantit.markets.registry import MarketRegistry, get_registry
 from quantit.paper.books import PAPER_BOOKS, PAPER_CASH, venue_of
+from quantit.paper.db import purge_zero_quantity_positions
 from quantit.paper.models import Account, Order, Position, PositionLot, Trade
 
 _T = TypeVar("_T")
@@ -101,6 +102,7 @@ class PaperBroker:
                     # Resize the paper endowment without flattening open positions.
                     account.cash += delta
                     account.initial_cash = target
+            purge_zero_quantity_positions(self.session, commit=False)
             self.session.commit()
 
         self._guarded(_apply, retry=False)
