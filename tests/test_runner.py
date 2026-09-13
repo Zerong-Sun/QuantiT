@@ -171,7 +171,88 @@ class TestQualityCfgCoercion:
         assert _unit_interval(float("nan"), 0.5) == 0.5
 
 
+class TestUsBookAutoEnv:
+    def test_opt_in_truthy_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.paper.runner import us_book_auto_enabled
+
+        monkeypatch.delenv("QUANTIT_US_BOOK_AUTO", raising=False)
+        assert us_book_auto_enabled() is False
+        monkeypatch.setenv("QUANTIT_US_BOOK_AUTO", "0")
+        assert us_book_auto_enabled() is False
+        monkeypatch.setenv("QUANTIT_US_BOOK_AUTO", "1")
+        assert us_book_auto_enabled() is True
+        monkeypatch.setenv("QUANTIT_US_BOOK_AUTO", "true")
+        assert us_book_auto_enabled() is True
+        monkeypatch.setenv("QUANTIT_US_BOOK_AUTO", "YES")
+        assert us_book_auto_enabled() is True
+
+
+def _spy_us_ticks(runner: PaperRunner, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record whether the US quality / MA-RSI sleeves are invoked; stub other books."""
+    called: list[str] = []
+    monkeypatch.setattr(runner, "_tick_us", lambda force=False: called.append("us") or [])
+    monkeypatch.setattr(runner, "_tick_us_book", lambda force=False: called.append("us_book") or [])
+    for name in (
+        "_tick_hk_quality",
+        "_tick_hk_theme",
+        "_tick_hk_warrants",
+        "_tick_cn_quality",
+        "_tick_cn_etf",
+    ):
+        monkeypatch.setattr(runner, name, lambda force=False: [])
+    return called
+
+
 class TestRunner:
+    def test_default_tick_does_not_auto_us_book(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.universes import US_QUALITY
+
+        monkeypatch.delenv("QUANTIT_US_BOOK_AUTO", raising=False)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=US_QUALITY, hk_warrants=(), hk_scores=None)
+        called = _spy_us_ticks(runner, monkeypatch)
+        runner.tick()
+        assert "us_book" not in called
+
+    def test_us_book_auto_env_enables_background_tick(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.universes import US_QUALITY
+
+        monkeypatch.setenv("QUANTIT_US_BOOK_AUTO", "1")
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=US_QUALITY, hk_warrants=(), hk_scores=None)
+        called = _spy_us_ticks(runner, monkeypatch)
+        runner.tick()
+        assert "us_book" in called
+
+    def test_default_tick_still_runs_us_tsmom(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.universes import US_QUALITY
+
+        monkeypatch.delenv("QUANTIT_US_BOOK_AUTO", raising=False)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=US_QUALITY, hk_warrants=(), hk_scores=None)
+        called = _spy_us_ticks(runner, monkeypatch)
+        runner.tick()
+        assert "us" in called
+
+    def test_explicit_us_book_markets_ticks_without_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from quantit.research.universes import US_QUALITY
+
+        monkeypatch.delenv("QUANTIT_US_BOOK_AUTO", raising=False)
+        session = create_session("sqlite:///:memory:")
+        broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+        broker.ensure_accounts()
+        runner = PaperRunner(broker, us_watch=US_QUALITY, hk_warrants=(), hk_scores=None)
+        called = _spy_us_ticks(runner, monkeypatch)
+        runner.tick(markets=("us_book",))
+        assert "us_book" in called
+        assert "us" not in called
+
     def test_buys_oversold_us_name_once_per_day(self) -> None:
         session = create_session("sqlite:///:memory:")
         broker = PaperBroker(session, registry=_registry(), now=lambda: datetime(2024, 6, 10, 10, 0, 0))
