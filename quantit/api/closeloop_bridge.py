@@ -37,7 +37,7 @@ def bind_broker(worker: LoopWorker, broker: PaperBroker) -> None:
         day = broker.now().date()
         if booked_on["day"] == day:
             return
-        fills = apply_target_book(broker, target, rationale=target.rationale)
+        fills = apply_target_book(broker, target, rationale=target.rationale, gate_passed=True)
         if any(item.get("status") == "filled" for item in fills):
             booked_on["day"] = day
 
@@ -71,12 +71,22 @@ def _cl_marks(broker: PaperBroker) -> tuple[float | None, float | None]:
     return cash, cash + invested
 
 
-def apply_target_book(broker: PaperBroker, book: TargetBook, rationale: str | None = None) -> list[dict[str, Any]]:
+def apply_target_book(
+    broker: PaperBroker,
+    book: TargetBook,
+    rationale: str | None = None,
+    *,
+    gate_passed: bool = False,
+) -> list[dict[str, Any]]:
     """Delta-rebalance the ``cl`` book only. Never touches us/hk/cn.
+
+    Fail-closed: place no orders unless ``gate_passed`` is True.
 
     Same-day T+1 lots are left in place instead of flatten-and-rebuy, so a second
     step cannot double the research sleeve.
     """
+    if not gate_passed:
+        return []
     if "cl" not in broker.registry.ids():
         return []
     note = rationale or book.rationale
@@ -182,7 +192,7 @@ def attach_closeloop_routes(app: FastAPI, broker: PaperBroker, worker: LoopWorke
         status, target = worker.step()
         fills: list[dict[str, Any]] = []
         if target is not None and status.can_trade and status.passed:
-            fills = apply_target_book(broker, target)
+            fills = apply_target_book(broker, target, gate_passed=True)
         payload = _with_book(status.to_dict())
         payload["fills"] = fills
         return payload
