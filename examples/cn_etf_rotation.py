@@ -53,6 +53,8 @@ def main() -> None:
         initial_cash=1_000_000.0,
         commission_rate=CN_PROFILE.commission_rate,
         slippage_rate=CN_PROFILE.slippage_rate,
+        stamp_duty_rate=CN_PROFILE.stamp_duty_rate,
+        venue="cn",
     )
     print("\nRunning monthly multi-asset backtest...")
     result = backtester.run(strategy, ohlcv, symbol="CN-ETF-ROTATION")

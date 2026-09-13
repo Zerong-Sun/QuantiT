@@ -58,7 +58,7 @@ Bear folds on the quality studies were numerous and within drawdown; promote fai
 
 ## L2 fill gap (research ≠ paper)
 
-Walk-forward uses `Backtester(fill_on="next_open")` with **config commission (10 bp) and slippage (5 bp)**. Paper fills the delayed last print ± venue slippage (`same_close` analog). `quantit.research.fills.compare_fill_models` matches that split and does **not** search a grid.
+Walk-forward uses `Backtester(fill_on="next_open")`. US/HK keep **config commission (10 bp) and slippage (5 bp)**; CN studies (`cn_quality_book`, `cn_etf_rotation`) use **CN_PROFILE** (3 bp buy / 3+5 bp sell+stamp; ETFs stamp-exempt). Paper fills the delayed last print ± venue slippage (`same_close` analog). `quantit.research.fills.compare_fill_models` matches that split and does **not** search a grid. Fill timing (research `next_open` vs paper delayed close) is unchanged.
 
 JNJ, live TSMOM params (`lookback=252`, `skip=21`, `target_vol=0.15`, `risk_off_scale=0.5`), 2022-01-01 … 2024-12-31, $100k; paper-style arm uses 5 bp slippage:
 

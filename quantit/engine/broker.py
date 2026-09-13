@@ -8,6 +8,7 @@ from enum import Enum
 from uuid import uuid4
 
 from quantit.engine.portfolio import Portfolio
+from quantit.markets.assets import asset_class
 from quantit.utils.config import get_config
 
 
@@ -63,19 +64,38 @@ class Broker:
         commission_rate: float | None = None,
         slippage_rate: float | None = None,
         fill_on: str | None = None,
+        stamp_duty_rate: float | None = None,
+        venue: str | None = None,
     ) -> None:
         config = get_config()
         self.portfolio = portfolio
         self.commission_rate = commission_rate if commission_rate is not None else config.commission_rate
         self.slippage_rate = slippage_rate if slippage_rate is not None else config.slippage_rate
         self.fill_on = fill_on if fill_on is not None else config.fill_on
+        self.stamp_duty_rate = float(stamp_duty_rate or 0.0)
+        self.venue = venue
         self.trades: list[Trade] = []
         self.pending_orders: list[Order] = []
 
     @property
     def sell_cost_ratio(self) -> float:
-        """Estimated one-way sell cost (slippage + commission) as a fraction of notional."""
-        return float(self.slippage_rate) + float(self.commission_rate)
+        """Estimated one-way sell cost without a symbol (slippage + commission + stamp)."""
+        return float(self.slippage_rate) + float(self.commission_rate) + float(self.stamp_duty_rate)
+
+    def sell_cost_ratio_for(self, symbol: str) -> float:
+        """Per-symbol sell friction matching fill semantics (CN ETFs are stamp-exempt)."""
+        rate = float(self.slippage_rate) + float(self.commission_rate)
+        if self.venue == "cn" and asset_class("cn", symbol) == "equity":
+            rate += float(self.stamp_duty_rate)
+        return rate
+
+    def _fill_rate(self, order: Order) -> float:
+        """Paper CN schedule: buy = commission; equity sell = commission + stamp; ETFs stamp-exempt."""
+        rate = float(self.commission_rate)
+        if self.venue == "cn" and order.side == OrderSide.SELL:
+            if asset_class("cn", order.symbol) == "equity":
+                rate += self.stamp_duty_rate
+        return rate
 
     def _fill(self, order: Order, price: float, timestamp: datetime) -> Order:
         if order.quantity <= 0:
@@ -84,7 +104,7 @@ class Broker:
 
         slip = price * self.slippage_rate
         fill_price = price + slip if order.side == OrderSide.BUY else price - slip
-        commission = fill_price * order.quantity * self.commission_rate
+        commission = fill_price * order.quantity * self._fill_rate(order)
 
         try:
             if order.side == OrderSide.BUY:
