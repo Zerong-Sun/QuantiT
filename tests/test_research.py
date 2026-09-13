@@ -259,6 +259,79 @@ def test_us_book_cannot_promote(tmp_path: Path) -> None:
     )
 
 
+def _passing_promote_pair():
+    gate = evaluate_gates(
+        oos_sharpe=1.2,
+        oos_drawdown=-0.1,
+        oos_trades=20,
+        buy_hold_sharpe=0.4,
+    )
+    promo = evaluate_promote_gates(
+        oos_sharpe=1.2,
+        oos_drawdown=-0.1,
+        oos_trades=20,
+        buy_hold_sharpe=0.4,
+        buy_hold_drawdown=-0.2,
+        folds=[_bear_fold(-0.08, -0.40), _bear_fold(-0.09, -0.30)],
+    )
+    return gate, promo
+
+
+def test_rsi_and_ma_cannot_promote_even_with_passing_gates(tmp_path: Path) -> None:
+    from quantit.research.specs import get_spec
+
+    gate, promo = _passing_promote_pair()
+    dest = tmp_path / "active_params.yaml"
+    for sid, params in (
+        ("rsi_mean_reversion", {"period": 14, "oversold": 30, "overbought": 70}),
+        ("ma_crossover", {"fast_period": 10, "slow_period": 30}),
+        ("us_book", {"fast_period": 10, "slow_period": 30}),
+    ):
+        assert get_spec(sid).promote is False
+        written = maybe_promote(
+            strategy_id=sid,
+            params=params,
+            gate=gate,
+            path=dest,
+            promote_gate=promo,
+        )
+        assert written is None
+        assert load_active_params(dest) == {}
+
+
+def test_tsmom_promote_does_not_carry_rsi_or_us_book(tmp_path: Path) -> None:
+    from quantit.research.params import write_active_params
+
+    dest = tmp_path / "active_params.yaml"
+    write_active_params(
+        {
+            "us_primary": "us_book",
+            "strategies": {
+                "rsi_mean_reversion": {"period": 7},
+                "ma_crossover": {"fast_period": 5, "slow_period": 20},
+                "us_book": {"fast_period": 5, "slow_period": 20},
+            },
+        },
+        dest,
+    )
+    gate, promo = _passing_promote_pair()
+    path = maybe_promote(
+        strategy_id="tsmom",
+        params={"lookback": 252, "skip": 21, "target_vol": 0.15},
+        gate=gate,
+        path=dest,
+        promote_gate=promo,
+    )
+    assert path is not None
+    payload = load_active_params(path)
+    assert payload["us_primary"] == "tsmom"
+    strategies = payload.get("strategies") or {}
+    assert "tsmom" in strategies
+    assert "rsi_mean_reversion" not in strategies
+    assert "ma_crossover" not in strategies
+    assert "us_book" not in strategies
+
+
 def test_ma_signal_reads_promoted_params() -> None:
     from quantit.research.params import write_active_params
     from quantit.strategy.signals import ma_signal

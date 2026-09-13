@@ -11,6 +11,10 @@ from quantit.research.params import load_active_params, write_active_params
 from quantit.research.specs import get_spec
 from quantit.research.universes import universe_allows_promote
 
+# MA/RSI / us_book are paper baselines. Research --promote must not persist
+# them (and must not keep a prior hand-edit next to promoted_at).
+_BASELINE_ONLY = frozenset({"us_book", "ma_crossover", "rsi_mean_reversion"})
+
 
 def maybe_promote(
     strategy_id: str,
@@ -27,7 +31,7 @@ def maybe_promote(
     Nasdaq / contrast universes and an empty symbol list never write ``active_params.yaml``.
     """
     spec = get_spec(strategy_id)
-    if not spec.promote or not gate.passed:
+    if strategy_id in _BASELINE_ONLY or not spec.promote or not gate.passed:
         return None
     if promote_gate is None or not promote_gate.passed:
         return None
@@ -35,6 +39,8 @@ def maybe_promote(
         return None
     existing = load_active_params(path)
     strategies = dict(existing.get("strategies") or {})
+    for banned in _BASELINE_ONLY:
+        strategies.pop(banned, None)
     strategies[strategy_id] = dict(params)
     payload = {
         **existing,
