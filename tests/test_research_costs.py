@@ -102,3 +102,40 @@ class TestResearchCostWiring:
 
         for strategy_id in ("tsmom", "us_book", "hk_quality_book", "theme_rotation"):
             assert research_cost_kwargs(strategy_id) == {}
+
+    def test_run_backtest_cn_quality_charges_profile_on_fills(self) -> None:
+        from quantit.engine.broker import OrderSide
+        from quantit.research.search import run_backtest
+
+        n = 80
+        dates = pd.date_range("2018-01-01", periods=n, freq="B")
+
+        def _ohlcv(start: float, step: float) -> pd.DataFrame:
+            prices = [start + i * step for i in range(n)]
+            return pd.DataFrame(
+                {
+                    "open": prices,
+                    "high": [p + 0.5 for p in prices],
+                    "low": [max(0.1, p - 0.5) for p in prices],
+                    "close": prices,
+                    "volume": [1_000_000.0] * n,
+                },
+                index=dates,
+            )
+
+        book = {"600519.SS": _ohlcv(100.0, 0.4), "600036.SS": _ohlcv(80.0, 0.36)}
+        row = run_backtest(
+            "cn_quality_book",
+            {"lookback": 40, "skip": 5, "risk_off_scale": 0.5},
+            book,
+            symbol="CN",
+            initial_cash=1_000_000.0,
+        )
+        trades = row["result"].trades
+        buys = [t for t in trades if t.side == OrderSide.BUY]
+        sells = [t for t in trades if t.side == OrderSide.SELL]
+        assert buys
+        for trade in buys:
+            assert trade.commission == pytest.approx(trade.price * trade.quantity * 0.0003)
+        for trade in sells:
+            assert trade.commission == pytest.approx(trade.price * trade.quantity * (0.0003 + 0.0005))
