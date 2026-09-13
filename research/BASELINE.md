@@ -44,7 +44,7 @@ Live YAML (`~/.quantit/research/active_params.yaml`, 2026-09-03) was written und
 | US TSMOM Nasdaq (audit) | `tsmom_us_nasdaq_2012.html` | PASS | metrics PASS, **universe FAIL** | 0.74 | −16.4% | 1.09 | −53.8% | Growth beta; must not promote |
 | US `us_book` quality | `us_book_us_quality_2012.html` | PASS | spec forbids | 0.32 | −50.2% | 0.53 | −50.8% | DD uses the BH escape hatch |
 | HK quality book | `hk_quality_book_2012.html` | PASS | **FAIL** | 0.06 | −14.1% | 0.31 | −17.5% | Live book |
-| HK quality frozen | `hk_quality_book_frozen_2012.html` | PASS | PASS (Calmar) | 0.28 | −15.4% | 0.31 | −17.5% | Not the live YAML |
+| HK quality frozen | `hk_quality_book_frozen_2012.html` | PASS | historical PASS (Calmar) — **not reproduced** | 0.28 | −15.4% | 0.31 | −17.5% | Snapshot only; not a promote case |
 | HK per-name TSMOM | `tsmom_hk_quality_2012.html` | **FAIL** | FAIL | −0.43 | −23.3% | 0.13 | −36.6% | Basket is the HK path, not per-name |
 | HK theme rotation research | `theme_rotation_2012.html` | PASS | spec forbids | 0.55 | −28.9% | 0.39 | −46.6% | Stay research-only |
 | HK theme live audit | `audit_theme_live_hk_2012.html` | **FAIL** | FAIL | 0.56 | −43.8% | 0.59 | −41.2% | DD worse than BH |
@@ -53,6 +53,8 @@ Live YAML (`~/.quantit/research/active_params.yaml`, 2026-09-03) was written und
 | CN industry ETF | `cn_etf_rotation_2012.html` | **FAIL** | FAIL | −0.04 | −40.3% | −0.09 | −36.4% | Not the live path |
 
 Bear folds on the quality studies were numerous and within drawdown; promote failures here are Sharpe/Calmar, not missing bear windows.
+
+**HK frozen 2026-09-13 re-run:** frozen `skip=0` Calmar PASS **did not reproduce** (Comte machine; evidence not in git: `~/.quantit/research/p_hk_frozen_vs_live/` — `SUMMARY.md`, `frozen_skip0.html`, `live_skip21.html`, `summary.json`). Snapshot numbers in the table stay as history only; **do not use as promote / 晋级 evidence**. Frozen-vs-live comparison is also polluted if historical live CSV mixed multiple param regimes.
 
 ## L2 fill gap (research ≠ paper)
 
