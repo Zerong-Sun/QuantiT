@@ -98,7 +98,7 @@ def test_build_alpha158_without_handler_requires_pyqlib(monkeypatch):
         ImportError("No module named qlib")
     ))
     monkeypatch.setattr(alpha158, "_make_alpha158_handler", _boom)
-    with pytest.raises(ImportError, match=r"pip install -e '\[closeloop\]'"):
+    with pytest.raises(ImportError, match=r"pip install -e '\.\[closeloop\]'"):
         alpha158.build_alpha158_dataset("2020-01-01", "2020-06-01", panel=panel)
 
 

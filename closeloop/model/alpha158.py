@@ -33,19 +33,18 @@ _DATE_ALIASES = {"date", "datetime", "time"}
 _INST_ALIASES = {"instrument", "instruments", "asset", "symbol"}
 
 
-def _qlib_missing(exc: BaseException | None = None) -> ImportError:
-    msg = (
+def _qlib_missing() -> ImportError:
+    return ImportError(
         "pyqlib is required to build Alpha158 datasets. "
         f"Install with: {QLIB_INSTALL_HINT}"
     )
-    return ImportError(msg) from exc
 
 
 def _import_qlib():
     try:
         import qlib
     except ImportError as exc:
-        raise _qlib_missing(exc) from exc
+        raise _qlib_missing() from exc
     return qlib
 
 
@@ -163,12 +162,12 @@ def build_alpha158_dataset(
         try:
             qlib = _import_qlib()
         except ImportError as exc:
-            raise _qlib_missing(exc) from exc
+            raise _qlib_missing() from exc
         qlib.init(provider_uri=str(dest), region="cn")
         try:
             handler = _make_alpha158_handler(start, end, universe, **handler_kwargs)
         except ImportError as exc:
-            raise _qlib_missing(exc) from exc
+            raise _qlib_missing() from exc
     if panel is None:
         panel = _load_panel(start, end, dest, universe)
 
