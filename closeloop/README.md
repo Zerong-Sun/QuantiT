@@ -72,7 +72,23 @@ Each `validate` / `run` writes `artifacts/library/{id}.json` (IC, IR, spread, tu
 
 ## Training
 
-`closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. Backend: LightGBM if installed, else sklearn linear, else numpy least squares. This is not a Qlib Alpha158 pipeline.
+`closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
+
+Optional **Alpha158** research path (does not replace Alpha101). Needs `pip install -e '.[closeloop]'` and the CSI300 dump at `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins):
+
+```bash
+closeloop train --features alpha158
+```
+
+```python
+from closeloop.model.alpha158 import build_alpha158_dataset
+from closeloop.model.train import train_predict_ic
+
+ds = build_alpha158_dataset("2020-01-01", "2024-12-31")  # date×instrument + label
+train_predict_ic(ds)
+```
+
+Alpha158 does **not** change gate thresholds or auto-place US/HK/CN orders. Paper results stay on book `cl`; trading still requires a gate pass on `cl` only.
 
 ## Official RD-Agent (sidecar only)
 
