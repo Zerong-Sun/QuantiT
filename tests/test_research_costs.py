@@ -198,6 +198,33 @@ class TestResearchCostWiring:
             if trade.side == OrderSide.SELL:
                 assert trade.commission != pytest.approx(trade.price * trade.quantity * 0.0008)
 
+    def test_buy_and_hold_metrics_multi_asset_uses_EqualWeightHold(self) -> None:
+        import inspect
+
+        from quantit.research.search import EqualWeightHold, buy_and_hold_metrics, research_cost_kwargs
+
+        src = inspect.getsource(buy_and_hold_metrics)
+        assert "EqualWeightHold()" in src or "EqualWeightHold" in src
+        assert "equalWeightHold()" not in src
+
+        dates = pd.date_range("2018-01-01", periods=40, freq="B")
+        prices = [100.0 + i * 0.2 for i in range(40)]
+        frame = pd.DataFrame(
+            {
+                "open": prices,
+                "high": [p + 0.3 for p in prices],
+                "low": [p - 0.3 for p in prices],
+                "close": prices,
+                "volume": [1_000_000.0] * 40,
+            },
+            index=dates,
+        )
+        book = {"600519.SS": frame, "600036.SS": frame.copy()}
+        metrics = buy_and_hold_metrics(book, "CN-BH", initial_cash=1_000_000.0, **research_cost_kwargs("cn_quality_book"))
+        assert "sharpe_ratio" in metrics
+        assert metrics["total_trades"] >= 1
+        assert EqualWeightHold.__name__ == "EqualWeightHold"
+
     def test_report_gate_defaults_unchanged(self) -> None:
         import inspect
 

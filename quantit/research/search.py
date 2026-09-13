@@ -185,10 +185,8 @@ def buy_and_hold_metrics(
     **cost_kwargs: Any,
 ) -> dict[str, float]:
     engine = Backtester(initial_cash=initial_cash, **cost_kwargs)
-    if isinstance(data, dict):
-        result = engine.run(EqualWeightHold(), data, symbol=symbol)
-    else:
-        result = engine.run(BuyAndHoldStrategy(), data, symbol=symbol)
+    hold: Strategy = EqualWeightHold() if isinstance(data, dict) else BuyAndHoldStrategy()
+    result = engine.run(hold, data, symbol=symbol)
     return compute_metrics(result)
 
 
