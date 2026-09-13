@@ -486,6 +486,41 @@ def test_report_gate_still_allows_lagging_buy_hold() -> None:
     assert any("buy-and-hold" in r.lower() or "calmar" in r.lower() for r in promo.reasons)
 
 
+def test_report_pass_promote_fail_does_not_write_active_params(tmp_path: Path) -> None:
+    """F4: report PASS + promote FAIL must not write active_params.yaml."""
+    from quantit.research.universes import US_QUALITY
+
+    dest = tmp_path / "active_params.yaml"
+    report = evaluate_gates(
+        oos_sharpe=0.05,
+        oos_drawdown=-0.18,
+        oos_trades=20,
+        buy_hold_sharpe=0.53,
+        buy_hold_drawdown=-0.50,
+    )
+    promo = evaluate_promote_gates(
+        oos_sharpe=0.05,
+        oos_drawdown=-0.18,
+        oos_trades=20,
+        buy_hold_sharpe=0.53,
+        buy_hold_drawdown=-0.50,
+        folds=[_bear_fold(-0.10, -0.40), _bear_fold(-0.12, -0.35)],
+    )
+    assert report.passed
+    assert not promo.passed
+    written = maybe_promote(
+        "tsmom",
+        {"lookback": 252, "skip": 21, "target_vol": 0.15},
+        report,
+        path=dest,
+        symbols=list(US_QUALITY),
+        promote_gate=promo,
+    )
+    assert written is None
+    assert not dest.exists()
+    assert load_active_params(dest) == {}
+
+
 def test_promote_gate_allows_calmar_advantage() -> None:
     from quantit.research.gates import evaluate_promote_gates
 
