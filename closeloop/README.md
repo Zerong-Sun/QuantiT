@@ -74,7 +74,7 @@ Each `validate` / `run` writes `artifacts/library/{id}.json` (IC, IR, spread, tu
 
 `closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
 
-Optional **Alpha158** research path (does not replace Alpha101). Needs `pip install -e '.[closeloop]'` and the CSI300 dump at `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins):
+Optional **Alpha158 research feature matrix** — this is qlib's `Alpha158` handler wired to the local CSI300 dump, **not** a complete or promotable Alpha158 trading system. It does not replace Alpha101. Needs `pip install -e '.[closeloop]'` and `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins). If pyqlib is missing the builder raises `ImportError`; it does **not** fall back to Alpha101 feature columns. The only shared pieces are the Closeloop `t+horizon` close-return **label** (not qlib `LABEL0`) and the existing `train_predict_ic` helper.
 
 ```bash
 closeloop train --features alpha158
@@ -88,7 +88,12 @@ ds = build_alpha158_dataset("2020-01-01", "2024-12-31")  # date×instrument + la
 train_predict_ic(ds)
 ```
 
-Alpha158 does **not** change gate thresholds or auto-place US/HK/CN orders. Paper results stay on book `cl`; trading still requires a gate pass on `cl` only.
+Design hooks in `closeloop/model/alpha158.py` (documented, **not applied** in v1):
+
+- Feature available day **day+1** (PIT / no same-day peek): `FEATURE_AVAILABLE_LAG_DAYS` / `apply_feature_available_lag`. Builder calls the hook with `lag=0`.
+- Train/test **embargo**: `TRAIN_EMBARGO_DAYS` / `apply_train_embargo`. Not wired into `train_predict_ic` (contiguous date-fraction split, no gap).
+
+This path does **not** change gate thresholds or auto-place US/HK/CN orders. Paper results stay on book `cl`; trading still requires a gate pass on `cl` only.
 
 ## Official RD-Agent (sidecar only)
 

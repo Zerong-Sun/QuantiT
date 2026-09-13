@@ -102,6 +102,19 @@ def test_build_alpha158_without_handler_requires_pyqlib(monkeypatch):
         alpha158.build_alpha158_dataset("2020-01-01", "2020-06-01", panel=panel)
 
 
+def test_pit_and_embargo_hooks_exist_but_are_not_applied():
+    from closeloop.model import alpha158
+
+    assert alpha158.FEATURE_AVAILABLE_LAG_DAYS == 1
+    assert alpha158.TRAIN_EMBARGO_DAYS >= 1
+    frame = pd.DataFrame({"K000": [1.0, 2.0]})
+    pd.testing.assert_frame_equal(alpha158.apply_feature_available_lag(frame, lag=0), frame)
+    with pytest.raises(NotImplementedError, match="design hook"):
+        alpha158.apply_feature_available_lag(frame, lag=alpha158.FEATURE_AVAILABLE_LAG_DAYS)
+    with pytest.raises(NotImplementedError, match="design hook"):
+        alpha158.apply_train_embargo(frame)
+
+
 def test_cli_train_accepts_alpha158_features():
     from closeloop.loop.run import build_parser
 

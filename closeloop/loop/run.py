@@ -235,13 +235,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List Alpha101 registry").set_defaults(func=_cmd_list)
     sub.add_parser("report", help="Print factor library IC table").set_defaults(func=_cmd_report)
 
-    train_p = sub.add_parser("train", help="Walk-forward model on Alpha101 or Alpha158 features")
+    train_p = sub.add_parser("train", help="Walk-forward IC on Alpha101, or Alpha158 research matrix")
     train_p.add_argument("--ids", default="006,012,041,101")
     train_p.add_argument(
         "--features",
         choices=("alpha101", "alpha158"),
         default="alpha101",
-        help="alpha158 needs pyqlib + ~/.quantit/closeloop/qlib_cn (research only; cl gate still required to trade)",
+        help=(
+            "alpha158 = qlib Alpha158 handler → qlib_cn research matrix "
+            "(not a tradable/promote system; no Alpha101 feature fallback; "
+            "needs pyqlib; cl gate still required to trade)"
+        ),
     )
     train_p.add_argument("--horizon", type=int, default=1)
     train_p.add_argument("--train-frac", type=float, default=0.7)
