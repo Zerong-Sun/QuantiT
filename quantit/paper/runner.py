@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import traceback
 from collections.abc import Callable
@@ -14,7 +15,7 @@ from quantit.features.regime import scores_to_theme_weights
 from quantit.markets.assets import us_option_root
 from quantit.markets.hk import HSTECH_THEMES, all_hstech_symbols
 from quantit.markets.cn import CN_ETF_FALLBACK, CN_ETF_THEMES, all_cn_etf_symbols
-from quantit.paper.books import DESK_BOOK_IDS
+from quantit.paper.books import AUTO_DESK_BOOK_IDS, DESK_BOOK_IDS
 from quantit.paper.broker import PaperBroker
 from quantit.paper.capital import (
     HK_ETF_WATCHLIST,
@@ -122,6 +123,20 @@ def _leverage(value: object, default: float) -> float:
     if parsed != parsed or parsed < 1.0:
         return default
     return parsed
+
+
+def us_book_auto_enabled() -> bool:
+    """True only when ``QUANTIT_US_BOOK_AUTO`` is an explicit opt-in."""
+    raw = os.environ.get("QUANTIT_US_BOOK_AUTO", "").strip().lower()
+    return raw in {"1", "true", "yes"}
+
+
+def default_auto_books() -> set[str]:
+    """Books the background loop ticks. ``us_book`` needs ``QUANTIT_US_BOOK_AUTO``."""
+    wanted = set(AUTO_DESK_BOOK_IDS)
+    if us_book_auto_enabled():
+        wanted.add("us_book")
+    return wanted
 
 
 def _non_negative_float(value: object, default: float) -> float:
@@ -244,11 +259,14 @@ class PaperRunner:
     ) -> list[dict[str, Any]]:
         """One evaluation pass. Safe to call from tests without the background thread.
 
-        ``markets`` limits which books run (default: every desk book except ``cl``).
+        ``markets`` limits which books run. Default (background loop / desk Run now):
+        every auto desk book except ``cl``. MA/RSI ``us_book`` is excluded unless
+        ``QUANTIT_US_BOOK_AUTO`` is ``1``/``true``/``yes``. Explicit ``markets=`` that
+        includes ``us_book`` still runs that sleeve for manual testing.
         ``force`` skips today's already-acted marks so a desk can pull a sleeve again
         the same day.
         """
-        wanted = set(markets) if markets else set(DESK_BOOK_IDS)
+        wanted = set(markets) if markets else default_auto_books()
         wanted.discard("cl")
         produced: list[dict[str, Any]] = []
         with self._tick_lock:

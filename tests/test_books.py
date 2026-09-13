@@ -10,7 +10,7 @@ from quantit.markets.display import display_label
 from quantit.markets.hk import HKAdapter
 from quantit.markets.registry import MarketRegistry
 from quantit.markets.us import USAdapter
-from quantit.paper.books import DESK_BOOK_IDS, PAPER_BOOKS, PAPER_CASH, get_book, venue_of
+from quantit.paper.books import AUTO_DESK_BOOK_IDS, DESK_BOOK_IDS, PAPER_BOOKS, PAPER_CASH, get_book, venue_of
 from quantit.paper.broker import PaperBroker
 from quantit.paper.db import create_session
 from quantit.data.provider import DataProvider
@@ -69,6 +69,8 @@ def test_catalog_has_seven_books_and_desk_skips_cl() -> None:
     ids = [book.book_id for book in PAPER_BOOKS]
     assert ids == ["us", "us_book", "hk", "hk_theme", "cn", "cn_etf", "cl"]
     assert DESK_BOOK_IDS == ("us", "us_book", "hk", "hk_theme", "cn", "cn_etf")
+    assert AUTO_DESK_BOOK_IDS == ("us", "hk", "hk_theme", "cn", "cn_etf")
+    assert "us_book" not in AUTO_DESK_BOOK_IDS
     assert get_book("hk_theme") is not None
     assert get_book("hk_theme").strategy_id == "theme_rotation"
     assert PAPER_CASH["us_book"] == PAPER_CASH["us"] == 100_000.0

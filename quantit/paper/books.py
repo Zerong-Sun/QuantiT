@@ -35,6 +35,10 @@ PAPER_CASH: dict[str, float] = {book.book_id: book.cash for book in PAPER_BOOKS}
 
 DESK_BOOK_IDS: tuple[str, ...] = tuple(book.book_id for book in PAPER_BOOKS if book.book_id != "cl")
 
+# Background / desk "Run now" set. MA/RSI ``us_book`` is opt-in via
+# ``QUANTIT_US_BOOK_AUTO=1`` (or an explicit ``markets=`` that includes it).
+AUTO_DESK_BOOK_IDS: tuple[str, ...] = tuple(bid for bid in DESK_BOOK_IDS if bid != "us_book")
+
 _VENUE_ALIAS: dict[str, str] = {book.book_id: book.venue for book in PAPER_BOOKS}
 
 
