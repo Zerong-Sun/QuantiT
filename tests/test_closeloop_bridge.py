@@ -118,7 +118,7 @@ def test_apply_target_book_only_touches_cl(tmp_path) -> None:
     cn_cash = broker.get_account("cn").cash
     cn_etf_cash = broker.get_account("cn_etf").cash
     book = TargetBook(weights={"SH600000": 1.0}, alpha_id="006", rationale="test cl")
-    fills = apply_target_book(broker, book)
+    fills = apply_target_book(broker, book, gate_passed=True)
     assert fills
     assert all(f["status"] in {"filled", "rejected"} for f in fills)
     assert broker.get_account("us").cash == pytest.approx(us_cash)
@@ -131,9 +131,36 @@ def test_apply_target_book_only_touches_cl(tmp_path) -> None:
     assert pos is not None and pos.quantity >= 100
     assert broker.get_account("cl").cash < 1_000_000.0
     first_qty = pos.quantity
-    again = apply_target_book(broker, book)
+    again = apply_target_book(broker, book, gate_passed=True)
     assert broker.get_position("cl", "SH600000").quantity == first_qty
     assert all(f["side"] != "buy" or f["status"] == "rejected" for f in again)
+
+
+def test_apply_target_book_no_orders_when_gate_not_passed(tmp_path) -> None:
+    """Direct apply_target_book is fail-closed unless gate_passed=True."""
+    registry, _dest = _dump(tmp_path)
+    session = create_session("sqlite:///:memory:")
+    broker = PaperBroker(session, registry=registry, now=lambda: datetime(2024, 6, 10, 10, 0, 0))
+    broker.ensure_accounts()
+    us_cash = broker.get_account("us").cash
+    us_book_cash = broker.get_account("us_book").cash
+    hk_cash = broker.get_account("hk").cash
+    hk_theme_cash = broker.get_account("hk_theme").cash
+    cn_cash = broker.get_account("cn").cash
+    cn_etf_cash = broker.get_account("cn_etf").cash
+    cl_cash = broker.get_account("cl").cash
+    book = TargetBook(weights={"SH600000": 1.0}, alpha_id="006", rationale="gate fail")
+    fills = apply_target_book(broker, book, gate_passed=False)
+    assert fills == []
+    assert broker.get_position("cl", "SH600000") is None
+    assert broker.list_positions("cl") == []
+    assert broker.get_account("cl").cash == pytest.approx(cl_cash)
+    assert broker.get_account("us").cash == pytest.approx(us_cash)
+    assert broker.get_account("us_book").cash == pytest.approx(us_book_cash)
+    assert broker.get_account("hk").cash == pytest.approx(hk_cash)
+    assert broker.get_account("hk_theme").cash == pytest.approx(hk_theme_cash)
+    assert broker.get_account("cn").cash == pytest.approx(cn_cash)
+    assert broker.get_account("cn_etf").cash == pytest.approx(cn_etf_cash)
 
 
 def test_sidecar_empty_inbox_does_not_rotate(tmp_path) -> None:
@@ -182,8 +209,8 @@ def test_dump_step_no_fills_when_gates_fail(tmp_path, monkeypatch) -> None:
     """Paper / Closeloop step: gate fail (no passed factors) ⇒ empty ``cl`` fills.
 
     Guarded entrypoints are ``LoopWorker._step_and_notify`` (``on_target``) and
-    ``POST /api/v1/closeloop/step``. ``apply_target_book`` itself does not re-check
-    ``passed``; this test locks the path paper trading actually uses.
+    ``POST /api/v1/closeloop/step``. ``apply_target_book`` is also fail-closed
+    unless ``gate_passed=True``; this test locks the path paper trading actually uses.
     """
     from quantit.api.app import create_app
     from closeloop.validate.gates import GateReport
