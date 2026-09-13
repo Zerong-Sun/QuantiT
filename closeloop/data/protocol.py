@@ -69,10 +69,22 @@ def panel_from_fields(fields: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return panel
 
 
+def _pct_change_no_fill(frame: pd.DataFrame) -> pd.DataFrame:
+    """Close-to-close pct change without padding NaNs (no lookahead).
+
+    pandas 2.2 defaults ``fill_method='pad'`` and emits ``FutureWarning``;
+    pandas 3 drops the pad default. Prefer the explicit no-fill call.
+    """
+    try:
+        return frame.pct_change(fill_method=None)
+    except TypeError:
+        return frame.pct_change()
+
+
 def add_returns(panel: pd.DataFrame) -> pd.DataFrame:
     """Append close-to-close returns without lookahead (first row NaN)."""
     close = field_frame(panel, "close")
-    ret = close.pct_change()
+    ret = _pct_change_no_fill(close)
     ret.columns = pd.MultiIndex.from_product([["returns"], ret.columns], names=["field", "instrument"])
     out = pd.concat([panel, ret], axis=1).sort_index(axis=1)
     out.index = pd.DatetimeIndex(out.index, name="datetime")

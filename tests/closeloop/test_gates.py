@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pandas as pd
 
-from closeloop.validate.adapter import get_clean_factor_and_forward_returns
-from closeloop.validate.gates import GateThresholds, evaluate
+from closeloop.validate.adapter import CleanFactor, get_clean_factor_and_forward_returns
+from closeloop.validate.gates import GateThresholds, _quantile_spread, evaluate
 
 
 def _dates(n: int = 40) -> pd.DatetimeIndex:
@@ -47,3 +49,24 @@ def test_noise_factor_fails_gates():
     report = evaluate(clean, GateThresholds(ic_mean_abs=0.05, ic_ir=0.8, period=1))
     assert report.passed is False
     assert report.reasons
+
+
+def test_quantile_spread_inf_means_no_runtime_warning():
+    """inf − inf must stay NaN (same gate outcome) without a numpy RuntimeWarning."""
+    idx = pd.MultiIndex.from_product(
+        [pd.bdate_range("2020-01-02", periods=2), ["A", "B"]],
+        names=["date", "asset"],
+    )
+    data = pd.DataFrame(
+        {
+            "factor": [0.0, 1.0, 0.0, 1.0],
+            "factor_quantile": [1.0, 2.0, 1.0, 2.0],
+            1: [np.inf, np.inf, np.inf, np.inf],
+        },
+        index=idx,
+    )
+    clean = CleanFactor(data=data, periods=(1,))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        spread = _quantile_spread(clean, 1)
+    assert spread != spread

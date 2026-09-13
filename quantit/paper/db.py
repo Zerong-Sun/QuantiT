@@ -7,7 +7,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from quantit.paper.models import Base
+from quantit.paper.models import Base, Position, PositionLot
 from quantit.utils.config import get_config
 
 
@@ -57,3 +57,33 @@ def create_session(url: str | None = None, engine: Engine | None = None) -> Sess
     eng = engine or create_engine_for(url)
     factory = sessionmaker(eng, expire_on_commit=False, future=True)
     return factory()
+
+
+def purge_zero_quantity_positions(session: Session, *, commit: bool = True) -> dict[str, int]:
+    """Drop leftover qty<=0 positions and lots with no live parent. Idempotent.
+
+    Isolation-migration residue (and fully flattened rows) stay in ``positions``
+    because sells zero the quantity instead of deleting the row. Safe for cash
+    and orders: those tables are not touched.
+    """
+    zero_ids = [row[0] for row in session.query(Position.id).filter(Position.quantity <= 0).all()]
+    lots_deleted = 0
+    if zero_ids:
+        lots_deleted += (
+            session.query(PositionLot)
+            .filter(PositionLot.position_id.in_(zero_ids))
+            .delete(synchronize_session=False)
+            or 0
+        )
+        session.query(Position).filter(Position.id.in_(zero_ids)).delete(synchronize_session=False)
+
+    live_ids = [row[0] for row in session.query(Position.id).all()]
+    orphan_q = session.query(PositionLot)
+    if live_ids:
+        orphan_q = orphan_q.filter(~PositionLot.position_id.in_(live_ids))
+    lots_deleted += orphan_q.delete(synchronize_session=False) or 0
+
+    if commit:
+        session.commit()
+        session.expire_all()
+    return {"positions": len(zero_ids), "lots": int(lots_deleted)}

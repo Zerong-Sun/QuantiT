@@ -3,6 +3,66 @@
 from __future__ import annotations
 
 import argparse
+import os
+from pathlib import Path
+
+DEFAULT_LOG_MAX_BYTES = 5 * 1024 * 1024
+DEFAULT_LOG_BACKUPS = 5
+
+
+def maybe_serve_log_config() -> dict | None:
+    """Rotating file + console logging when ``QUANTIT_LOG_FILE`` is set.
+
+    Unset (local ``quantit serve``) keeps uvicorn's default console config.
+    """
+    raw = os.environ.get("QUANTIT_LOG_FILE", "").strip()
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        max_bytes = int(os.environ.get("QUANTIT_LOG_MAX_BYTES", str(DEFAULT_LOG_MAX_BYTES)))
+    except ValueError:
+        max_bytes = DEFAULT_LOG_MAX_BYTES
+    try:
+        backup_count = int(os.environ.get("QUANTIT_LOG_BACKUPS", str(DEFAULT_LOG_BACKUPS)))
+    except ValueError:
+        backup_count = DEFAULT_LOG_BACKUPS
+    max_bytes = max(1024, max_bytes)
+    backup_count = max(1, backup_count)
+    return {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+            },
+        },
+        "handlers": {
+            "console": {
+                "class": "logging.StreamHandler",
+                "formatter": "default",
+                "stream": "ext://sys.stderr",
+            },
+            "file": {
+                "class": "logging.handlers.RotatingFileHandler",
+                "formatter": "default",
+                "filename": str(path),
+                "maxBytes": max_bytes,
+                "backupCount": backup_count,
+                "encoding": "utf-8",
+            },
+        },
+        "root": {
+            "level": "INFO",
+            "handlers": ["console", "file"],
+        },
+        "loggers": {
+            "uvicorn": {"handlers": ["console", "file"], "level": "INFO", "propagate": False},
+            "uvicorn.error": {"handlers": ["console", "file"], "level": "INFO", "propagate": False},
+            "uvicorn.access": {"handlers": ["console", "file"], "level": "INFO", "propagate": False},
+        },
+    }
 
 
 def _cmd_backtest(args: argparse.Namespace) -> None:
@@ -143,13 +203,16 @@ def _cmd_serve(args: argparse.Namespace) -> None:
 
         threading.Thread(target=_open, daemon=True).start()
 
-    uvicorn.run(
-        create_app,
-        factory=True,
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-    )
+    log_config = maybe_serve_log_config()
+    run_kw: dict = {
+        "factory": True,
+        "host": args.host,
+        "port": args.port,
+        "reload": args.reload,
+    }
+    if log_config is not None:
+        run_kw["log_config"] = log_config
+    uvicorn.run(create_app, **run_kw)
 
 
 def main() -> None:

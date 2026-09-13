@@ -13,7 +13,8 @@ from quantit.markets.hk import HKAdapter
 from quantit.markets.registry import MarketRegistry
 from quantit.markets.us import USAdapter
 from quantit.paper.broker import PaperBroker
-from quantit.paper.db import create_session
+from quantit.paper.db import create_session, purge_zero_quantity_positions
+from quantit.paper.models import Account, Order, Position, PositionLot
 
 
 def _ohlcv(n: int = 3, start: str = "2024-06-03", start_price: float = 100.0) -> pd.DataFrame:
@@ -170,3 +171,119 @@ class TestVenueRules:
         assert bad.status == "rejected"
         good = broker.place_order("hk", "0700", "buy", 100)
         assert good.status == "filled"
+
+
+def _seed_zero_qty_residue(session, *, now: datetime) -> dict:
+    """Isolation-migration leftovers: qty=0 rows on several books, plus one live pos."""
+    accounts = {a.market_id: a for a in session.query(Account).all()}
+    zeros = [
+        Position(account_id=accounts["us"].id, market_id="us", symbol="RESIDUE.US", quantity=0, avg_cost=0.0),
+        Position(account_id=accounts["hk"].id, market_id="hk", symbol="RESIDUE.HK", quantity=0, avg_cost=12.0),
+        Position(account_id=accounts["cn"].id, market_id="cn", symbol="RESIDUE.CN", quantity=0, avg_cost=0.0),
+    ]
+    live = Position(
+        account_id=accounts["us_book"].id,
+        market_id="us_book",
+        symbol="AAPL",
+        quantity=7,
+        avg_cost=100.0,
+    )
+    session.add_all([*zeros, live])
+    session.flush()
+    session.add_all(
+        [
+            PositionLot(
+                position_id=zeros[0].id,
+                quantity=10,
+                remaining=0,
+                price=1.0,
+                acquired_on=now,
+            ),
+            PositionLot(
+                position_id=live.id,
+                quantity=7,
+                remaining=7,
+                price=100.0,
+                acquired_on=now,
+            ),
+            PositionLot(
+                position_id=9_999_999,
+                quantity=3,
+                remaining=0,
+                price=2.0,
+                acquired_on=now,
+            ),
+            Order(
+                account_id=accounts["us"].id,
+                market_id="us",
+                symbol="RESIDUE.US",
+                side="sell",
+                quantity=10,
+                status="filled",
+                fill_price=1.0,
+                created_at=now,
+                fill_time=now,
+            ),
+        ]
+    )
+    accounts["us"].cash = 88_000.0
+    session.commit()
+    return {
+        "live_id": live.id,
+        "zero_ids": [z.id for z in zeros],
+        "cash": {a.market_id: a.cash for a in session.query(Account).all()},
+        "orders": [
+            (o.id, o.market_id, o.symbol, o.quantity, o.status)
+            for o in session.query(Order).order_by(Order.id).all()
+        ],
+    }
+
+
+def _assert_residue_cleared(session, seed: dict) -> None:
+    leftover = session.query(Position).filter(Position.quantity <= 0).all()
+    assert leftover == []
+    live = session.query(Position).filter_by(id=seed["live_id"]).one()
+    assert live.quantity == 7
+    assert live.symbol == "AAPL"
+    assert live.market_id == "us_book"
+    live_lots = session.query(PositionLot).filter_by(position_id=live.id).all()
+    assert len(live_lots) == 1
+    assert live_lots[0].remaining == 7
+    assert session.query(PositionLot).filter_by(position_id=9_999_999).all() == []
+    assert session.query(PositionLot).filter(PositionLot.position_id.in_(seed["zero_ids"])).all() == []
+    cash = {a.market_id: a.cash for a in session.query(Account).all()}
+    assert cash == seed["cash"]
+    orders = [
+        (o.id, o.market_id, o.symbol, o.quantity, o.status)
+        for o in session.query(Order).order_by(Order.id).all()
+    ]
+    assert orders == seed["orders"]
+
+
+class TestZeroQuantityCleanup:
+    def test_purge_drops_zero_qty_and_orphans_keeps_live(self, tmp_path) -> None:
+        session = create_session(f"sqlite:///{tmp_path / 'paper.db'}")
+        now = datetime(2024, 6, 10, 10, 0, 0)
+        broker = PaperBroker(session, registry=_registry(), now=lambda: now)
+        broker.ensure_accounts()
+        seed = _seed_zero_qty_residue(session, now=now)
+
+        stats = purge_zero_quantity_positions(session)
+        assert stats["positions"] == 3
+        assert stats["lots"] >= 2
+        _assert_residue_cleared(session, seed)
+
+        again = purge_zero_quantity_positions(session)
+        assert again["positions"] == 0
+        assert again["lots"] == 0
+        _assert_residue_cleared(session, seed)
+
+    def test_ensure_accounts_purges_zero_qty_residue(self, tmp_path) -> None:
+        session = create_session(f"sqlite:///{tmp_path / 'paper.db'}")
+        now = datetime(2024, 6, 10, 10, 0, 0)
+        broker = PaperBroker(session, registry=_registry(), now=lambda: now)
+        broker.ensure_accounts()
+        seed = _seed_zero_qty_residue(session, now=now)
+
+        broker.ensure_accounts()
+        _assert_residue_cleared(session, seed)

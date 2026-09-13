@@ -56,6 +56,8 @@ Then open **http://127.0.0.1:8000/** (`quantit serve` opens it by default). Quot
 
 Idle paper books are seeded at **USD 100,000** each for US quality TSMOM and US MA/RSI, **HKD 1,000,000** each for HK quality and Hang Seng TECH rotation (warrants overlay the theme book), and **CNY 1,000,000** each for CN quality and industry-ETF rotation. The runner ticks every desk book each session (at most once per calendar day; turnover bands skip tiny size changes). YAML `us_primary` / `hk_primary` / `cn_primary` still record research `--promote` params and no longer hide the other books. Options overlay lives on `us_book`; warrants on `hk_theme`. Closeloop uses a separate **CL CNY 1,000,000** book (`market_id=cl`) that the paper runner never ticks. Open **http://127.0.0.1:8000/research** for the research loop. Set `QUANTIT_RUNNER=0` to pause the desk runner; `QUANTIT_CLOSELOOP=0` to pause Closeloop. Without a CSI300 dump (`closeloop ingest --universe csi300` → `~/.quantit/closeloop/qlib_cn/panel.parquet`) the worker uses a fixture panel and does not place `cl` orders.
 
+Long-running `quantit serve` (for example under `~/.quantit/runners/supervise.sh`) can set `QUANTIT_LOG_FILE` to write rotating file logs (default 5 MB × 5 backups; override with `QUANTIT_LOG_MAX_BYTES` / `QUANTIT_LOG_BACKUPS`) while still logging to the console. Unset, local serve keeps uvicorn's default console-only logging.
+
 Review of whether those live rules are reasonable, tradable at this size, and what to expect next: [`knowledge_base/11_paper/strategy_review.md`](knowledge_base/11_paper/strategy_review.md).
 
 For live reload during UI development, keep the API running and in another shell:
