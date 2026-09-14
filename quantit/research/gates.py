@@ -123,7 +123,7 @@ def evaluate_promote_gates(
 
 
 def evaluate_rol_gates(*args: Any, **kwargs: Any) -> GateResult:
-    """Risk Overlay Layer gates (ROL v0.1.1). Not attached to --promote."""
+    """Risk Overlay Layer gates (ROL v0.1.1 数值校准). Not attached to --promote."""
     from quantit.research.rol import evaluate_rol_gates as _evaluate_rol_gates
 
     return _evaluate_rol_gates(*args, **kwargs)
