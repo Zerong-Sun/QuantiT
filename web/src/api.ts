@@ -16,14 +16,16 @@ import type {
   CloseloopLibraryRow,
   CloseloopTraceRow,
 } from "./types";
+import { assertJsonResponse } from "./jsonResponse";
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const res = await fetch(path, { signal });
+  const bodyText = await res.text();
+  assertJsonResponse(res.headers.get("content-type"), bodyText);
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(formatApiError(detail, res.status));
+    throw new Error(formatApiError(bodyText, res.status));
   }
-  return res.json() as Promise<T>;
+  return JSON.parse(bodyText) as T;
 }
 
 function formatApiError(detail: string, status: number): string {

@@ -50,7 +50,8 @@ knowledge_base/
 │   ├── international.md     # 美元、美债、纳指、人民币传导
 │   └── hstech_rotation.md   # 月频主题权重
 ├── 11_paper/                # 模拟盘（当前账户上的规则，不是一般理论）
-│   └── strategy_review.md   # 合理性 / 可行性 / 路径预测
+│   ├── strategy_review.md   # 合理性 / 可行性 / 路径预测
+│   └── runners.md           # 纸面 UI 端口健康、监督重启、HTML-as-JSON 症状
 └── 12_a_share/              # A 股行业 ETF 月频轮动
     ├── market_structure.md  # 沪深、T+1、一手、印花税、股通
     ├── etf_market.md        # 场内二级 vs 申赎、宽基 vs 行业
