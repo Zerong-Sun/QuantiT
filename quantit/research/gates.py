@@ -120,3 +120,10 @@ def evaluate_promote_gates(
             f"bear folds within drawdown {bear_ok} < {min_bear_ok} (n={bear_n})"
         )
     return GateResult(passed=not reasons, reasons=tuple(reasons))
+
+
+def evaluate_rol_gates(*args: Any, **kwargs: Any) -> GateResult:
+    """Risk Overlay Layer gates (ROL v0.1.1 数值校准). Not attached to --promote."""
+    from quantit.research.rol import evaluate_rol_gates as _evaluate_rol_gates
+
+    return _evaluate_rol_gates(*args, **kwargs)
