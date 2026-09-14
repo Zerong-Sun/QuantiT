@@ -213,6 +213,91 @@ def test_3_shrinking_universe_must_not_raise_p3_cap() -> None:
     assert equal_ok.passed is True
 
 
+def test_b1_p3_n2_hard_cap_0_40_fails_concentrated_weight() -> None:
+    """B1: n=2, 1/n=0.50 would miss 0.45; hard top 0.40 must FAIL."""
+    assert 1 / 2 == pytest.approx(0.50)
+    assert (1 / 2) + P3_WEIGHT_CAP_ADD == pytest.approx(0.55)
+    assert p3_weight_cap(2) == pytest.approx(P3_WEIGHT_CAP_ABS_MAX)
+    assert p3_weight_cap(2) == pytest.approx(0.40)
+    target = ["A", "B"]
+    # 0.45 < 0.50 (naked 1/n) and < 0.55 (1/n+0.05), but > 0.40 hard top.
+    hot = evaluate_rol_gates(
+        **_clean_kwargs(
+            target_universe=target,
+            held_universe=target,
+            weights={"A": 0.45, "B": 0.40},
+        )
+    )
+    assert hot.passed is False
+    assert any("P3" in r for r in hot.reasons)
+    cool = evaluate_rol_gates(
+        **_clean_kwargs(
+            target_universe=target,
+            held_universe=target,
+            weights={"A": 0.39, "B": 0.39},
+        )
+    )
+    assert cool.passed is True
+
+
+def test_b2_p2_dual_cap_risk_on_i_strong_and_risk_off_rho() -> None:
+    """B2: lag-1 risk-on G≤I_strong (0.95); risk-off G≤ρ (yaml, rho alias)."""
+    d0, d1 = pd.to_datetime(["2024-07-01", "2024-07-02"])
+    names = [f"N{i}" for i in range(10)]
+
+    def book(g1: float) -> pd.DataFrame:
+        w0 = 0.05
+        w1 = g1 / len(names)
+        return pd.DataFrame(
+            {name: [w0, w1] for name in names},
+            index=pd.DatetimeIndex([d0, d1]),
+        )
+
+    yaml = _complete_yaml(invested_strong=0.95)
+    yaml.pop("risk_off_scale")
+    yaml["rho"] = 0.50
+
+    # ρ=0.50 < G=0.80 < I_strong=0.95: risk-on must PASS (would FAIL if ρ applied).
+    on_ok = evaluate_rol_gates(
+        **_clean_kwargs(
+            yaml_params=yaml,
+            weights=book(0.80),
+            labels=pd.Series({d0: 1, d1: 0}),
+            trading_days=[d0, d1],
+            target_universe=names,
+        )
+    )
+    assert on_ok.passed is True
+
+    # G=0.97 > I_strong: risk-on FAIL even though G<1.0.
+    on_hot = evaluate_rol_gates(
+        **_clean_kwargs(
+            yaml_params=yaml,
+            weights=book(0.97),
+            labels=pd.Series({d0: 1, d1: 0}),
+            trading_days=[d0, d1],
+            target_universe=names,
+        )
+    )
+    assert on_hot.passed is False
+    assert "risk-on" in " ".join(on_hot.reasons).lower()
+
+    # Same G=0.80, lag-1 risk-off: G>ρ FAIL (and ρ came from yaml ``rho`` alias).
+    off_hot = evaluate_rol_gates(
+        **_clean_kwargs(
+            yaml_params=yaml,
+            weights=book(0.80),
+            labels=pd.Series({d0: 0, d1: 1}),
+            trading_days=[d0, d1],
+            target_universe=names,
+        )
+    )
+    assert off_hot.passed is False
+    blob = " ".join(off_hot.reasons).lower()
+    assert "risk-off" in blob
+    assert "0.50" in blob or "rho" in blob
+
+
 def test_4_low_median_high_p95_p4_fail() -> None:
     """P4/R2: median×1.5 and P95×2.5. Abs 0.10 only if P95(T̄)<0.02 — no fishing OR."""
     baseline = [0.02] * 100
