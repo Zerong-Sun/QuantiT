@@ -1,4 +1,9 @@
-"""Persisted paper broker: market orders at the last delayed quote."""
+"""Persisted paper broker: market orders at the last delayed quote.
+
+Fills immediately at ``adapter.fetch_quote().last`` (last daily close,
+``delayed=True``) ± venue slippage. That is the ``same_close`` analog, not
+research ``next_open``. See ``quantit.research.fills``.
+"""
 
 from __future__ import annotations
 

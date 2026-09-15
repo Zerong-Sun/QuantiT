@@ -58,7 +58,15 @@ Bear folds on the quality studies were numerous and within drawdown; promote fai
 
 ## L2 fill gap (research ≠ paper)
 
-Walk-forward uses `Backtester(fill_on="next_open")`. US/HK keep **config commission (10 bp) and slippage (5 bp)**; CN studies (`cn_quality_book`, `cn_etf_rotation`) use **CN_PROFILE** (3 bp buy / 3+5 bp sell+stamp; ETFs stamp-exempt). Paper fills the delayed last print ± venue slippage (`same_close` analog). `quantit.research.fills.compare_fill_models` matches that split and does **not** search a grid. Fill timing (research `next_open` vs paper delayed close) is unchanged.
+**F2 (2026-09-15):** Diagnosed as **intentional**, not a bug. Locked by `tests/test_fills.py` and `quantit.research.fills` (`RESEARCH_FILL_ON` vs `PAPER_FILL_ANALOG`). Do not “fix” this by making walk-forward fill at same-close, or by queueing paper orders until the next open.
+
+| Path | When the fill happens | Price | Notes |
+| --- | --- | --- | --- |
+| Research / walk-forward | Signal on bar t, fill on bar t+1 | `open[t+1]` ± slippage | `Backtester(fill_on="next_open")` (config default). Last-bar orders are cancelled. `walk_forward` / `grid_search` do not take `fill_on`. |
+| Paper (US/HK/CN + `cl`) | Order is placed → fill immediately | `MarketAdapter.fetch_quote().last` = last daily **close**, `delayed=True` | Public delayed bars; no next-open queue. `PaperBroker.place_order` (Closeloop `apply_target_book` uses the same path). |
+| Paper analog in research | Same-bar fill after the signal | `close[t]` ± venue slippage | `compare_fill_models` paper arm: `fill_on="same_close"`. Not a grid-search path. |
+
+Walk-forward US/HK keep **config commission (10 bp) and slippage (5 bp)**; CN studies (`cn_quality_book`, `cn_etf_rotation`) use **CN_PROFILE** (3 bp buy / 3+5 bp sell+stamp; ETFs stamp-exempt). Fill timing (research `next_open` vs paper delayed close) is unchanged.
 
 JNJ, live TSMOM params (`lookback=252`, `skip=21`, `target_vol=0.15`, `risk_off_scale=0.5`), 2022-01-01 … 2024-12-31, $100k; paper-style arm uses 5 bp slippage:
 
