@@ -82,6 +82,8 @@ Same-window paper-style fills were still worse. Do not promote from this table. 
 
 `~/.quantit/closeloop/qlib_cn/panel.parquet` is present locally (~14MB, dated 2026-09-08). A dump on disk does **not** imply `cl` trading: when the Closeloop library has **zero passed factors**, `cl` may still place **no** orders.
 
+Alpha158 research uses a **separate** `.venv311` (Python 3.11; maintainer lock in `closeloop/README.md`). Do not bind `quantit serve` to that venv — paper serve stays on the existing `.venv` / current Python 3.9 process. Research-only; not a promote path and not US/HK/CN orders.
+
 - Fixture panels must not be reported as CSI300 results (`LoopWorker.source()=="fixture"` ⇒ `can_trade=False`).
 - In-repo `closeloop/artifacts/library/` has no CSI300 JSON in this tree; an older 101-run (only alpha 078 passing) is **not** reproduced here.
 - With that dump: `closeloop --data-dir ~/.quantit/closeloop/qlib_cn run --rounds 101` then `report`. Passed factors go to `TargetBook` top-5 **only on `cl`**. US/HK/CN cash must not move. Pytest `test_csi300_library_replay_requires_dump` skips only if the parquet is absent on the machine under test.

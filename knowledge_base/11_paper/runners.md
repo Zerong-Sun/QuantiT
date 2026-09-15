@@ -66,3 +66,9 @@ done
 Vite 若也用监督，同样只在进程退出时重启；5173 不听时用 `check_runners.sh` 发现后，杀掉 Vite 监督组再 `cd web && npm run dev`。
 
 `QUANTIT_LOG_FILE` 的轮转（默认 5 MB × 5 份，可用 `QUANTIT_LOG_MAX_BYTES` / `QUANTIT_LOG_BACKUPS` 改）已在 `quantit serve` 里实现，见仓库 README。监督脚本只要导出该变量即可，不要再叠一套轮转。
+
+## Alpha158 研究环境 ≠ 纸面 serve
+
+端口 **8000** 的 `quantit serve` 必须继续用纸面环境：当前跑在系统/CLT **Python 3.9** 上（也可以继续用现有 `.venv`）。重启监督脚本时 **不要** `source .venv311`，也 **不要** 把 `quantit serve` 绑到 `.venv311`。
+
+Alpha158 / qlib 研究用单独的 `.venv311`（维护机锁定：Python **3.11.16**，qlib **0.9.7**，lightgbm **4.7.0**，sklearn **1.9.1**）。官方复现命令见 [`closeloop/README.md`](../../closeloop/README.md)。该路径是研究用，不会晋级，也不会下 US/HK/CN 单。

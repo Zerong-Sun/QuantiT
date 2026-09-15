@@ -41,6 +41,8 @@ pip install -e ".[closeloop]"
 
 Core tests run without `pyqlib` / AkShare (fixture panel). Those extras are for production ingest.
 
+Alpha158 research uses a **separate** `.venv311` (do not replace the existing `.venv`); official reproduce is under Training.
+
 ## CLI
 
 ```bash
@@ -74,11 +76,32 @@ Each `validate` / `run` writes `artifacts/library/{id}.json` (IC, IR, spread, tu
 
 `closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
 
-Optional **Alpha158 research feature matrix** — this is qlib's `Alpha158` handler wired to the local CSI300 dump, **not** a complete or promotable Alpha158 trading system. It does not replace Alpha101. Needs `pip install -e '.[closeloop]'` and `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins). If pyqlib is missing the builder raises `ImportError`; it does **not** fall back to Alpha101 feature columns. The only shared pieces are the Closeloop `t+horizon` close-return **label** (not qlib `LABEL0`) and the existing `train_predict_ic` helper.
+Optional **Alpha158 research feature matrix** — this is qlib's `Alpha158` handler wired to the local CSI300 dump, **not** a complete or promotable Alpha158 trading system. It does not replace Alpha101. Needs `pip install -e '.[closeloop]'` (in `.venv311`, below) and `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins). If pyqlib is missing the builder raises `ImportError`; it does **not** fall back to Alpha101 feature columns. The only shared pieces are the Closeloop `t+horizon` close-return **label** (not qlib `LABEL0`) and the existing `train_predict_ic` helper.
+
+### Official reproduce (`.venv311`, research-only)
+
+Create a **separate** `.venv311` with Homebrew `python@3.11`. Do **not** replace the existing `.venv`.
+
+Verified on the maintainer machine (lock these numbers): Python **3.11.16**, qlib **0.9.7**, lightgbm **4.7.0**, sklearn **1.9.1**. `from closeloop.model.alpha158 import build_alpha158_dataset` imports.
 
 ```bash
+# Homebrew python@3.11. Leave the existing .venv (paper / serve) untouched.
+python3.11 -m venv .venv311
+# if python3.11 is not on PATH:
+# "$(brew --prefix python@3.11)/bin/python3.11" -m venv .venv311
+source .venv311/bin/activate
+python -V   # 3.11.16 on the maintainer lock
+pip install -U pip
+pip install -e '.[closeloop]'
+
+python -c "import sys, qlib, lightgbm, sklearn; from closeloop.model.alpha158 import build_alpha158_dataset; print(sys.version.split()[0], qlib.__version__, lightgbm.__version__, sklearn.__version__)"
+# expect: 3.11.16  0.9.7  4.7.0  1.9.1
+
+# short example; needs ~/.quantit/closeloop/qlib_cn (not the fixture panel)
 closeloop train --features alpha158
 ```
+
+**Research-only.** `quantit serve` / the paper runner on port **8000** currently run under **Python 3.9** (system / CLT) and must keep using the existing `.venv` (or that 3.9 serve). Never activate `.venv311` for serve, and never bind `supervise.sh` / `quantit serve` to `.venv311`.
 
 ```python
 from closeloop.model.alpha158 import build_alpha158_dataset
