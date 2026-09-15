@@ -41,8 +41,9 @@ class Backtester:
     """Event-driven backtester that iterates bar-by-bar.
 
     Default fill policy is ``next_open``: a signal on bar t fills at bar t+1 open.
-    Pass ``fill_on="same_close"`` to fill at the signal bar's close (legacy).
-    Unfilled orders on the last bar are cancelled.
+    Pass ``fill_on="same_close"`` to fill at the signal bar's close (legacy; also
+    the paper analog — paper fills immediately at the delayed last close, not
+    the next open). Unfilled orders on the last bar are cancelled.
     """
 
     def __init__(
