@@ -144,8 +144,8 @@ def write_qlib_layout(panel: pd.DataFrame, dest: Path, universe: str = "csi300")
     """Write calendars, instruments, qlib feature bins, and panel.parquet.
 
     Feature bins follow qlib ``FileFeatureStorage.write`` (float32 LE
-    ``[start_index, ...values...]``). ``panel.parquet`` is unchanged and is
-    still Closeloop's Alpha101 / DataPlane path.
+    ``[start_index, ...values...]``). ``panel.parquet`` is a separate
+    Closeloop DataPlane dump; it is **not** an Alpha158 feature substitute.
     """
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
