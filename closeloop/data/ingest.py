@@ -124,15 +124,37 @@ def attach_industry(panel: pd.DataFrame, mapping: dict[str, float]) -> pd.DataFr
     return out
 
 
+def write_qlib_feature_bin(path: Path, data, start_index: int = 0) -> Path:
+    """Write a qlib ``FileFeatureStorage`` feature bin.
+
+    On-disk float32 little-endian layout matches qlib's writer::
+
+        np.hstack([start_index, data]).astype("<f").tofile(path)
+
+    ``start_index`` is the calendar index of the first stored value.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = np.hstack([start_index, np.asarray(data, dtype=np.float64)]).astype("<f")
+    payload.tofile(path)
+    return path
+
+
 def write_qlib_layout(panel: pd.DataFrame, dest: Path, universe: str = "csi300") -> Path:
-    """Write calendars, instruments, float32 bins, and panel.parquet."""
+    """Write calendars, instruments, qlib feature bins, and panel.parquet.
+
+    Feature bins follow qlib ``FileFeatureStorage.write`` (float32 LE
+    ``[start_index, ...values...]``). ``panel.parquet`` is a separate
+    Closeloop DataPlane dump; it is **not** an Alpha158 feature substitute.
+    """
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "calendars").mkdir(exist_ok=True)
     (dest / "instruments").mkdir(exist_ok=True)
     (dest / "features").mkdir(exist_ok=True)
 
-    dates = pd.DatetimeIndex(panel.index).strftime("%Y-%m-%d")
+    calendar = pd.DatetimeIndex(panel.index)
+    dates = calendar.strftime("%Y-%m-%d")
     (dest / "calendars" / "day.txt").write_text("\n".join(dates.tolist()) + "\n", encoding="utf-8")
 
     instruments = list(panel.columns.get_level_values("instrument").unique())
@@ -149,9 +171,16 @@ def write_qlib_layout(panel: pd.DataFrame, dest: Path, universe: str = "csi300")
         inst_dir = dest / "features" / inst
         inst_dir.mkdir(exist_ok=True)
         for field in fields:
-            series = panel[(field, inst)].reindex(panel.index)
-            arr = series.to_numpy(dtype=np.float32)
-            (inst_dir / f"{field}.day.bin").write_bytes(arr.tobytes())
+            series = panel[(field, inst)].reindex(calendar)
+            # qlib dump_bin: calendar index of the first stored timestamp.
+            start_index = int(calendar.get_indexer([series.index[0]])[0])
+            if start_index < 0:
+                raise ValueError(f"{series.index[0]!r} is not in dump calendar")
+            write_qlib_feature_bin(
+                inst_dir / f"{field}.day.bin",
+                series.to_numpy(),
+                start_index=start_index,
+            )
     return dest
 
 
