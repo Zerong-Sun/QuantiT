@@ -215,8 +215,8 @@ tbody tr:hover { background: #f8faf9; }
 @media (max-width: 760px) {
   .topbar { flex-wrap: wrap; gap: 14px; padding: 14px 16px; }
   .topbar > .status-pill { order: 1; }
-  .pages { order: 2; width: 100%; }
-  .pages button { padding: 8px 10px; flex: 1; font-size: 12px; }
+  .pages { order: 2; width: 100%; overflow-x: auto; }
+  .pages button { padding: 8px 7px; flex: 1 0 auto; font-size: 12px; white-space: nowrap; }
   .overview-page { padding: 24px 16px; }
   .page-heading { display: block; }
   .environment-label { display: block; margin-top: 12px; }
@@ -254,3 +254,37 @@ tbody tr:hover { background: #f8faf9; }
   .research-actions { margin-top: 16px; }
   .research-dashboard { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* Isolated history: one comparison list, one selected account, one daily ledger. */
+.history-notice { padding: 12px 16px; margin: 0 0 22px; background: #edf3ef; border-radius: 8px; color: #52675b; font-size: 12px; overflow-wrap: anywhere; }
+.history-layout { display: grid; grid-template-columns: 320px minmax(0,1fr); gap: 22px; align-items: start; }
+.history-panel { min-width: 0; background: white; border: 1px solid var(--line); border-radius: 10px; padding: 22px; }
+.history-picker { padding: 20px 12px 12px; }
+.history-picker .section-heading { padding: 0 10px; }
+.history-picker button { width: 100%; display: flex; justify-content: space-between; gap: 12px; border: 1px solid transparent; margin-bottom: 3px; padding: 12px 10px; text-align: left; background: transparent; }
+.history-picker button[aria-pressed="true"] { background: #edf5ef; border-color: #c7dccf; }
+.history-picker button > span:last-child { text-align: right; flex-shrink: 0; }
+.history-picker strong { font-size: 13px; }
+.history-page small { display: block; color: var(--ink-muted); font-size: 11px; font-weight: 400; }
+.history-metrics { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 15px; margin: 24px 0 12px; }
+.history-metrics span { font-size: 11px; color: var(--ink-muted); }
+.history-metrics strong { display: block; font-size: 23px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.history-chart { height: 270px; width: 100%; margin: 18px 0 12px; }
+.history-result .hint { margin: 0 0 25px; font-size: 12px; color: var(--ink-muted); }
+.history-scroll { width: 100%; overflow-x: auto; }
+.history-page table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.history-page th, .history-page td { padding: 10px 8px; border-bottom: 1px solid var(--line-light); text-align: right; white-space: nowrap; }
+.history-page th:first-child, .history-page td:first-child { text-align: left; }
+.history-page th { color: var(--ink-muted); font-weight: 500; }
+.history-page td button { padding: 3px 6px; font-size: 12px; border-color: transparent; background: transparent; }
+.history-page tr.selected { background: #edf5ef; }
+.history-page td details p { white-space: normal; min-width: 160px; max-width: 260px; text-align: left; overflow-wrap: anywhere; }
+.history-pagination { display: flex; justify-content: flex-end; gap: 14px; align-items: center; margin-top: 14px; font-size: 11px; color: var(--ink-muted); }
+.history-pagination button { font-size: 11px; }
+.history-detail, .history-method { margin-top: 22px; }
+.history-detail label { font-size: 12px; color: var(--ink-muted); }
+.history-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; margin-top: 24px; }
+.history-method { font-size: 12px; color: var(--ink-muted); }
+.history-method summary { color: var(--ink); font-weight: 600; }
+@media (max-width: 1050px) { .history-layout { grid-template-columns: 280px minmax(0,1fr); gap: 14px; } .history-metrics { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .history-layout, .history-detail-grid { grid-template-columns: 1fr; } .history-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; } .history-picker .section-heading { grid-column: 1/-1; } .history-picker button { flex-direction: column; gap: 4px; } .history-picker button > span:last-child { text-align: left; display: flex; gap: 8px; align-items: center; } .history-panel { padding: 16px; } .history-page .page-heading { align-items: flex-start; } .history-detail .section-heading { flex-wrap: wrap; } .history-metrics strong { font-size: 21px; } }

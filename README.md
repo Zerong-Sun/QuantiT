@@ -10,11 +10,12 @@ A research-oriented quantitative trading platform for US equities, Hong Kong lon
 - **Strategies**: Time-series momentum with volatility targeting (US research default); MA/RSI `us_book` as a paper baseline; HK theme rotation; CN industry ETF rotation. Current paper implementations evaluate daily with turnover bands, not monthly.
 - **Research**: Walk-forward grid search (`quantit research`); report gate vs stricter promote gate; only the paper quality universe can write `~/.quantit/research/active_params.yaml`. See `research/BASELINE.md`.
 - **Backtest**: Bar-by-bar simulation; single-name signals fill on the next bar's open by default
+- **Daily paper histories**: `/history` compares 11 isolated strategies from July 1, 2026, with prior-session signals, next-open simulated fills, corporate actions and daily ledgers. Frozen pre-July Alpha158/LightGBM models and momentum controls run alongside six desk books. See [results and validation](research/JULY_HISTORY_2026-10-20.md) and [continuation operations](research/JULY_HISTORY_OPERATIONS.md).
 - **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, **one cash account per strategy** sharing US/HK/CN venue adapters (US quality TSMOM + US MA/RSI, HK quality TSMOM + Hang Seng TECH rotation, CN quality TSMOM + industry ETFs, plus an isolated **CL ¥1m** CSI300 research book). A-share T+1 and board lots. Top-bar **Research** (`/research`) runs Closeloop (Alpha101 + gates) without mixing into any US/HK/CN paper book.
 - **Analysis**: Performance metrics, Plotly charts, HTML reports
 - **News / policy**: Finnhub REST polling for headlines. Headlines **do not** trade. `quantit brief` filters policy/geopolitics events into a markdown pack (plus Yahoo international macros). Optional `--llm` writes a YAML calendar proposal; it is **not** auto-merged and the paper runner does not read it.
 
-ML and RL are not implemented yet. Quotes are delayed public-source data, not a live broker feed.
+Alpha158/LightGBM research and isolated paper evaluation are implemented; RL is not implemented. Quotes are delayed public-source data, not a live broker feed.
 
 ## Quick start
 

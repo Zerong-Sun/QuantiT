@@ -54,6 +54,7 @@ def frontend_dist() -> Path | None:
 def mount_frontend(app: FastAPI) -> None:
     dist = frontend_dist()
     if dist is None:
+        @app.get("/history", include_in_schema=False)
         @app.get("/desk", include_in_schema=False)
         @app.get("/", include_in_schema=False)
         def ui_fallback() -> HTMLResponse:
@@ -73,6 +74,7 @@ def mount_frontend(app: FastAPI) -> None:
     if assets.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
 
+    @app.get("/history", include_in_schema=False)
     @app.get("/desk", include_in_schema=False)
     @app.get("/", include_in_schema=False)
     def ui_index() -> FileResponse:

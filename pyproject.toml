@@ -71,6 +71,7 @@ include = ["quantit*", "closeloop*"]
 
 [tool.setuptools.package-data]
 "quantit.policy.data" = ["*.yaml"]
+"quantit.paper" = ["history_hk_lots.json", "history_actions.json"]
 "closeloop.artifacts.inbox" = ["*.yaml"]
 
 [tool.pytest.ini_options]

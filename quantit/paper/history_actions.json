@@ -1,0 +1,8 @@
+{
+  "description": "Issuer-confirmed ETF splits missing from Yahoo actions. Use independent unadjusted Tencent bars, not a guessed price multiplier.",
+  "events": {
+    "512480.SS": [{"ex_date": "2026-07-03", "ratio": 2.0, "record_date": "2026-07-02", "source": "https://data.eastmoney.com/notices/detail/512480/AN202606291826521348.html", "issuer": "国联安基金管理有限公司"}],
+    "159995.SZ": [{"ex_date": "2026-07-07", "ratio": 2.0, "record_date": "2026-07-06", "source": "https://static.cninfo.com.cn/finalpage/2026-07-07/1225412524.PDF", "issuer": "华夏基金管理有限公司"}],
+    "159813.SZ": [{"ex_date": "2026-08-03", "ratio": 2.0, "record_date": "2026-07-31", "source": "https://static.cninfo.com.cn/finalpage/2026-07-28/1225442749.PDF", "issuer": "鹏华基金管理有限公司"}]
+  }
+}

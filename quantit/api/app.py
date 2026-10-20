@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from quantit.api.closeloop_bridge import LoopWorker, attach_closeloop_routes, make_worker
 from quantit.api.frontend import mount_frontend
+from quantit.api.history import attach_history_routes
 from quantit.api.schemas import (
     AccountOut,
     BarOut,
@@ -130,6 +131,7 @@ def create_app(
     app.state.runner = runner
     app.state.closeloop_worker = closeloop_worker
     attach_closeloop_routes(app, broker, closeloop_worker)
+    attach_history_routes(app)
 
     def _adapter(market_id: str):
         try:
