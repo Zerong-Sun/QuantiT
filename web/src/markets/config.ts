@@ -2,13 +2,13 @@ export const MARKET_UI: Record<
   string,
   { label: string; pricePrecision: number; lotHint: string }
 > = {
-  us: { label: "US quality", pricePrecision: 2, lotHint: "Stocks, ETFs, options (×100)" },
-  us_book: { label: "US MA/RSI", pricePrecision: 2, lotHint: "Stocks, ETFs, options (×100)" },
-  hk: { label: "HK quality", pricePrecision: 3, lotHint: "Stocks, ETFs, warrants" },
-  hk_theme: { label: "HK theme", pricePrecision: 3, lotHint: "Hang Seng TECH + warrants" },
-  cn: { label: "CN quality", pricePrecision: 2, lotHint: "100-share lots, T+1" },
-  cn_etf: { label: "CN ETFs", pricePrecision: 2, lotHint: "Industry ETFs, lots of 100, T+1" },
-  cl: { label: "CL CSI300", pricePrecision: 2, lotHint: "CSI300 research book, lots of 100" },
+  us: { label: "美股质量", pricePrecision: 2, lotHint: "股票 / ETF / 期权（乘数 ×100）" },
+  us_book: { label: "美股 MA/RSI", pricePrecision: 2, lotHint: "股票 / ETF / 期权（乘数 ×100）" },
+  hk: { label: "港股质量", pricePrecision: 3, lotHint: "股票 / ETF / 认购证" },
+  hk_theme: { label: "港股科技主题", pricePrecision: 3, lotHint: "恒生科技主题 / 认购证" },
+  cn: { label: "A 股质量", pricePrecision: 2, lotHint: "每手 100 股，T+1" },
+  cn_etf: { label: "行业 ETF", pricePrecision: 2, lotHint: "行业 ETF，每手 100 份，T+1" },
+  cl: { label: "因子研究账户", pricePrecision: 2, lotHint: "固定研究股票池，每手 100 股" },
 };
 
 export const DEFAULT_SYMBOL: Record<string, string> = {

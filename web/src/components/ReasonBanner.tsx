@@ -5,8 +5,9 @@ export function ReasonBanner({ signals }: { signals: Signal[] }) {
     return null;
   }
   return (
-    <div className="reason-banner">
-      <p className="hint">个股参考信号 · 组合调仓以各策略账户规则为准</p>
+    <details className="reason-banner">
+      <summary>个股参考信号 <span>{signals.length} 项 · 展开查看依据</span></summary>
+      <p className="hint">组合调仓以当前策略账户的规则为准。</p>
       <div className="reason-chips">
         {signals.map((s) => (
           <div key={s.strategy_id} className={`reason-chip ${s.action}`} title={s.reason}>
@@ -16,7 +17,7 @@ export function ReasonBanner({ signals }: { signals: Signal[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </details>
   );
 }
 

@@ -27,6 +27,7 @@ export function ResizableCard({
   children,
   minWidth = 220,
   minHeight = 140,
+  resizable = false,
 }: {
   id: string;
   title?: string;
@@ -35,8 +36,9 @@ export function ResizableCard({
   children: ReactNode;
   minWidth?: number;
   minHeight?: number;
+  resizable?: boolean;
 }) {
-  const [size, setSize] = useState<Partial<Size>>(() => readSizes()[id] ?? {});
+  const [size, setSize] = useState<Partial<Size>>(() => resizable ? readSizes()[id] ?? {} : {});
 
   const onGripDown = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
@@ -83,7 +85,7 @@ export function ResizableCard({
   return (
     <section
       className={`card ${className} ${size.w || size.h ? "is-sized" : ""}`.trim()}
-      style={style}
+      style={resizable ? style : { minWidth: 0 }}
       data-card={id}
     >
       {title ? (
@@ -100,7 +102,7 @@ export function ResizableCard({
         ) : null}
         {children}
       </div>
-      <div className="card-grip" title="Drag to resize" onPointerDown={onGripDown} />
+      {resizable ? <div className="card-grip" title="Drag to resize" onPointerDown={onGripDown} /> : null}
     </section>
   );
 }

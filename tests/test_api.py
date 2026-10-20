@@ -170,3 +170,9 @@ class TestTradingRoutes:
         resp = client.get("/research")
         assert resp.status_code == 200
         assert "text/html" in resp.headers.get("content-type", "")
+
+    def test_desk_route_can_be_opened_directly(self, client: TestClient) -> None:
+        resp = client.get("/desk")
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers.get("content-type", "")
+        assert b"QuantiT" in resp.content

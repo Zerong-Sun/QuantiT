@@ -82,7 +82,8 @@ export function PortfolioPage() {
   );
 
   return (
-    <main className="dashboard">
+    <main className="dashboard portfolio-dashboard">
+      <div className="page-heading"><div><p className="eyebrow">PORTFOLIO</p><h1>资产组合</h1><p>按独立账户查看净值、盈亏与持仓分布。</p></div></div>
       <div className="desk-tabs">
         {(data?.books ?? []).map((b) => (
           <button key={b.market_id} className={b.market_id === book?.market_id ? "active" : ""} onClick={() => setMarket(b.market_id)}>
@@ -91,7 +92,7 @@ export function PortfolioPage() {
         ))}
       </div>
 
-      <ResizableCard id="pf-summary" title="Book" className="wide" loading={loading} minWidth={360} minHeight={160}>
+      <ResizableCard id="pf-summary" title="账户概况" className="wide" loading={loading} minWidth={360} minHeight={160}>
         {book ? (
           <div className="metric-grid">
             <div className="metric">
@@ -124,7 +125,7 @@ export function PortfolioPage() {
             </div>
           </div>
         ) : (
-          <p className="empty">No account.</p>
+          <p className="empty">暂无账户数据。</p>
         )}
         {error ? <p className="banner error">{error}</p> : null}
         {book?.valuation_complete === false ? (
@@ -136,34 +137,34 @@ export function PortfolioPage() {
       </ResizableCard>
 
       <ResizableCard id="pf-donut" title="持仓分布" className="pane" loading={loading} minWidth={280} minHeight={240}>
-        <DonutChart slices={slices} empty="No open positions." />
+        <DonutChart slices={slices} empty="暂无持仓。" />
       </ResizableCard>
 
       <ResizableCard id="pf-class" title="资产类别" className="pane" loading={loading} minWidth={240} minHeight={240}>
-        <DonutChart slices={classSlices} empty="No open positions." />
+        <DonutChart slices={classSlices} empty="暂无持仓。" />
       </ResizableCard>
 
       <ResizableCard id="pf-bars" title="持仓市值" className="pane" loading={loading} minWidth={280} minHeight={240}>
-        <BarChart slices={slices} empty="No open positions." />
+        <BarChart slices={slices} empty="暂无持仓。" />
       </ResizableCard>
 
-      <ResizableCard id="pf-table" title="Positions" className="wide" loading={loading} minWidth={360} minHeight={220}>
+      <ResizableCard id="pf-table" title="持仓明细" className="wide" loading={loading} minWidth={360} minHeight={220}>
         <table>
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Qty</th>
-              <th>Last</th>
-              <th>Avg</th>
-              <th>Value</th>
-              <th>Weight</th>
-              <th>Unrealized</th>
-              <th>Day</th>
+              <th>标的</th>
+              <th>数量</th>
+              <th>最新价</th>
+              <th>均价</th>
+              <th>市值</th>
+              <th>占比</th>
+              <th>未实现盈亏</th>
+              <th>日盈亏</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
-              <tr><td colSpan={8}>No positions</td></tr>
+              <tr><td colSpan={8}>暂无持仓</td></tr>
             ) : rows.map((p) => (
               <tr key={`${p.market_id}-${p.symbol}`}>
                 <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>

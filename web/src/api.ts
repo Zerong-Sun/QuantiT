@@ -31,8 +31,8 @@ async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
 function formatApiError(detail: string, status: number): string {
   try {
     const body = JSON.parse(detail) as { detail?: unknown };
-    if (body.detail === "Not Found" || status === 404) {
-      return "持仓接口未加载。请重启 quantit serve 后刷新。";
+    if (body.detail === "Not Found") {
+      return "请求的接口不存在，请刷新页面后重试。";
     }
     if (typeof body.detail === "string" && body.detail.trim()) {
       return body.detail;

@@ -63,60 +63,41 @@ export function CloseloopPage() {
 
   return (
     <>
-      <div className="runner-bar">
-        <span className={status?.running ? "live" : "off"}>{status?.running ? "LIVE" : "PAUSED"}</span>
-        <span>source {status?.source ?? "—"}</span>
-        {status?.data_asof ? (
-          <span>data {status.data_asof} · {fmt((status.latest_coverage ?? 0) * 100, 1)}% latest coverage</span>
-        ) : null}
-        <span>alpha {status?.last_alpha ?? "—"}</span>
-        <span>IC {fmt(status?.ic_mean, 4)} · IR {fmt(status?.ic_ir, 3)}</span>
-        <span>CL {fmt(status?.cl_cash, 0)} {status?.cl_currency ?? "CNY"}{status?.cl_equity != null ? ` · eq ${fmt(status.cl_equity, 0)}` : ""}</span>
-        <span>
-          {status?.can_trade
-            ? "dump quotes · may book cl"
-            : status?.has_dump === false
-              ? "no dump · fixture research, no cl orders"
-              : status?.data_fresh === false
-                ? "stale research data · no cl orders"
-                : "research only · no cl orders"}
-        </span>
-        <span>{status?.last_tick ? `tick ${status.last_tick.replace("T", " ").slice(0, 19)}` : "waiting"}</span>
-        <button type="button" disabled={busy} onClick={() => run(() => api.closeloopStep())}>
-          Step
-        </button>
-        {status?.running ? (
-          <button type="button" disabled={busy} onClick={() => run(() => api.closeloopStop())}>
-            Pause
-          </button>
-        ) : (
-          <button type="button" disabled={busy} onClick={() => run(() => api.closeloopStart())}>
-            Start
-          </button>
-        )}
-        {status?.last_error ? <span className="banner error">{status.last_error.split("\n")[0]}</span> : null}
+      <div className="research-header">
+        <div className="page-heading"><div><p className="eyebrow">FACTOR RESEARCH</p><h1>因子研究</h1><p>独立研究账户 · 通过验证门槛后才生成模拟交易目标。</p></div>
+          <div className="research-actions"><span className={`status-pill ${status?.running ? "success" : "neutral"}`}>{status ? status.running ? "研究运行中" : "研究已暂停" : "连接中"}</span>
+            <button disabled={busy || !status} onClick={() => run(() => api.closeloopStep())}>{busy ? "处理中…" : "评估下一个因子"}</button>
+            <button disabled={busy || !status} onClick={() => run(() => status?.running ? api.closeloopStop() : api.closeloopStart())}>{status?.running ? "暂停研究" : "启动研究"}</button></div>
+        </div>
+        <div className="research-metrics">
+          <div className="metric"><span>数据日期 / 最新覆盖率</span><strong>{status?.data_asof ?? "—"}</strong><small>{status?.latest_coverage == null ? "—" : `${fmt(status.latest_coverage * 100, 1)}%`} · {status?.data_fresh ? "数据有效" : "等待有效数据"}</small></div>
+          <div className="metric"><span>最新因子 / 验证门槛</span><strong>{status?.last_alpha ?? "—"}</strong><small>{status?.passed == null ? "等待评估" : status.passed ? "通过" : "未通过 · 不生成交易目标"}</small></div>
+          <div className="metric"><span>信息系数 IC / IR</span><strong>{fmt(status?.ic_mean, 4)}</strong><small>IR {fmt(status?.ic_ir, 3)}</small></div>
+          <div className="metric"><span>研究账户净值 · {status?.cl_currency ?? "CNY"}</span><strong>{fmt(status?.cl_equity, 0)}</strong><small>现金 {fmt(status?.cl_cash, 0)}</small></div>
+        </div>
+        {status?.last_error ? <p className="banner error">{status.last_error}</p> : null}
       </div>
-      <main className="dashboard">
+      <main className="dashboard research-dashboard">
         {error ? <div className="banner error">{error}</div> : null}
-        <ResizableCard id="cl-library" title="Factor library" className="wide" minWidth={360} minHeight={220}>
+        <ResizableCard id="cl-library" title="因子库" className="wide" minWidth={360} minHeight={220}>
           <table>
             <thead>
               <tr>
                 <th>Alpha</th>
-                <th>Passed</th>
+                <th>门槛</th>
                 <th>IC</th>
                 <th>IR</th>
-                <th>Spread</th>
-                <th>Turnover</th>
+                <th>分组收益差</th>
+                <th>换手率</th>
               </tr>
             </thead>
             <tbody>
               {library.length === 0 ? (
-                <tr><td colSpan={6}>No library rows. Step once to evaluate an Alpha101 factor.</td></tr>
+                <tr><td colSpan={6}>暂无因子记录，可评估下一个因子。</td></tr>
               ) : library.map((row) => (
                 <tr key={row.alpha_id}>
                   <td>{row.alpha_id}</td>
-                  <td>{row.passed ? "yes" : "no"}</td>
+                  <td>{row.passed ? "通过" : "未通过"}</td>
                   <td>{fmt(row.ic_mean, 4)}</td>
                   <td>{fmt(row.ic_ir, 3)}</td>
                   <td>{fmt(row.quantile_spread, 4)}</td>
@@ -126,38 +107,38 @@ export function CloseloopPage() {
             </tbody>
           </table>
         </ResizableCard>
-        <ResizableCard id="cl-trace" title="Trace" className="pane" minWidth={280} minHeight={220}>
+        <ResizableCard id="cl-trace" title="最近评估记录" className="pane" minWidth={280} minHeight={220}>
           <table>
             <thead>
               <tr>
                 <th>Alpha</th>
-                <th>Passed</th>
+                <th>门槛</th>
                 <th>IC</th>
-                <th>Why</th>
+                <th>评估原因</th>
               </tr>
             </thead>
             <tbody>
               {trace.length === 0 ? (
-                <tr><td colSpan={4}>No trace yet.</td></tr>
+                <tr><td colSpan={4}>暂无评估记录。</td></tr>
               ) : [...trace].reverse().map((row, i) => (
                 <tr key={`${row.alpha_id ?? "row"}-${i}`}>
                   <td>{row.alpha_id ?? "—"}</td>
-                  <td>{row.passed ? "yes" : "no"}</td>
+                  <td>{row.passed ? "通过" : "未通过"}</td>
                   <td>{fmt(row.ic_mean, 4)}</td>
-                  <td className="why">{(row.reasons ?? []).join("; ") || "—"}</td>
+                  <td><details><summary>查看原因</summary><p className="order-reason">{(row.reasons ?? []).join("; ") || "—"}</p></details></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </ResizableCard>
-        <ResizableCard id="cl-pos" title="CL positions" className="pane" minWidth={240} minHeight={220}>
+        <ResizableCard id="cl-pos" title="研究账户持仓" className="pane" minWidth={240} minHeight={220}>
           <table>
             <thead>
-              <tr><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
+              <tr><th>标的</th><th>数量</th><th>均价</th></tr>
             </thead>
             <tbody>
               {positions.length === 0 ? (
-                <tr><td colSpan={3}>Flat. Orders only when source is qlib_dump and gates pass.</td></tr>
+                <tr><td colSpan={3}>暂无持仓。有效行情和验证门槛同时满足才生成模拟订单。</td></tr>
               ) : positions.map((p) => (
                 <tr key={`${p.market_id}-${p.symbol}`}>
                   <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api } from "./api";
+import { StrategyOverview, bookState } from "./components/StrategyOverview";
+import { BookLedger } from "./components/BookLedger";
 import { KLineChart } from "./components/KLineChart";
 import { NotesBoard } from "./components/NotesBoard";
 import { CloseloopPage } from "./components/CloseloopPage";
 import { PortfolioPage } from "./components/PortfolioPage";
 import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
+import { canSubmitOrder } from "./orderEligibility";
 import { ResizableCard } from "./components/ResizableCard";
 import { StrategyDesk } from "./components/StrategyDesk";
 import { TradeToasts, toastsFromTrades, type TradeToastItem } from "./components/TradeToasts";
@@ -27,7 +30,7 @@ import type {
 
 const POLL_MS = 15_000;
 type DeskTab = "blotter" | "strategies" | "notes";
-type Page = "desk" | "portfolio" | "research";
+type Page = "overview" | "desk" | "portfolio" | "research";
 
 function readPage(): Page {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -37,7 +40,7 @@ function readPage(): Page {
   if (path.endsWith("/portfolio") || window.location.hash === "#/portfolio") {
     return "portfolio";
   }
-  return "desk";
+  return path.endsWith("/desk") || window.location.hash === "#/desk" ? "desk" : "overview";
 }
 
 function fmt(n: number | null | undefined, digits = 2): string {
@@ -67,9 +70,12 @@ export function App() {
   const [runner, setRunner] = useState<Runner | null>(null);
   const [desk, setDesk] = useState<DeskTab>("blotter");
   const [qty, setQty] = useState(100);
+  const [submitting, setSubmitting] = useState(false);
+  const [runnerBusy, setRunnerBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [error, setError] = useState("");
+  const [symbolError, setSymbolError] = useState("");
   const [symbolLoading, setSymbolLoading] = useState(true);
   const [blotterLoading, setBlotterLoading] = useState(true);
   const [deskLoading, setDeskLoading] = useState(true);
@@ -157,8 +163,17 @@ export function App() {
     if (!opts?.quiet) {
       userLoadGen.current = gen;
     }
-    setError("");
     if (!opts?.quiet) {
+      setError("");
+      setSymbolError("");
+      setSymbol(nextSymbol);
+      setQuery(nextSymbol);
+      setInstrument(null);
+      setQuote(null);
+      setBars([]);
+      setSignals(null);
+      setSelectedOrder(null);
+      setMessage("");
       setSymbolLoading(true);
     }
     try {
@@ -172,16 +187,17 @@ export function App() {
         return;
       }
       setInstrument(inst);
+      setSymbolError("");
       setQuote(q);
       setBars(b);
       setSignals(sig);
       setSymbol(inst.symbol);
-      setQuery(inst.symbol);
+      if (!opts?.quiet) setQuery(inst.symbol);
     } catch (err) {
       if (gen !== symbolLoadGen.current) {
         return;
       }
-      setError(err instanceof Error ? err.message : String(err));
+      setSymbolError(err instanceof Error ? err.message : String(err));
     } finally {
       if (!opts?.quiet && userLoadGen.current === gen) {
         userLoadGen.current = 0;
@@ -193,9 +209,10 @@ export function App() {
   }
 
   function goPage(next: Page) {
-    const url = next === "portfolio" ? "/portfolio" : next === "research" ? "/research" : "/";
+    const url = next === "portfolio" ? "/portfolio" : next === "research" ? "/research" : next === "desk" ? "/desk" : "/";
     window.history.pushState({ page: next }, "", url);
     setPage(next);
+    window.scrollTo(0, 0);
   }
 
   useEffect(() => {
@@ -217,7 +234,6 @@ export function App() {
       const sym = DEFAULT_SYMBOL[first] ?? "JNJ";
       setSymbol(sym);
       setQuery(sym);
-      return loadSymbol(first, sym);
     }).catch((err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
       setSymbolLoading(false);
@@ -225,6 +241,12 @@ export function App() {
     loadBlotter().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
     loadDesk().catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
   }, []);
+
+  useEffect(() => {
+    if (page === "desk" && !instrument && !userLoadGen.current) {
+      void loadSymbol(market, symbol);
+    }
+  }, [page]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -243,16 +265,18 @@ export function App() {
 
   async function onSearch(event: FormEvent) {
     event.preventDefault();
-    const hits = await api.search(market, query);
-    const pick = hits[0];
-    if (!pick) {
-      setError("No symbol found");
-      return;
-    }
-    await loadSymbol(market, pick.symbol);
+    if (submitting || symbolLoading || !query.trim()) return;
+    const selection = symbolLoadGen.current;
+    try {
+      const hits = await api.search(market, query.trim());
+      if (selection !== symbolLoadGen.current || market !== viewRef.current.market) return;
+      if (!hits[0]) { setError("未找到标的，请检查代码。"); return; }
+      await loadSymbol(market, hits[0].symbol);
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
 
   async function switchMarket(id: string) {
+    if (submitting) return;
     setMarket(id);
     const next = DEFAULT_SYMBOL[id] ?? query;
     setInterval("1d");
@@ -261,10 +285,11 @@ export function App() {
       setStrategyId(match.id);
     }
     await loadSymbol(id, next, "1d");
-    await loadBlotter();
   }
 
   async function submit(side: "buy" | "sell") {
+    if (!canSubmit) return;
+    setSubmitting(true);
     setMessage("");
     setError("");
     try {
@@ -283,12 +308,27 @@ export function App() {
       }
       setSelectedOrder(order);
       await loadBlotter();
-      await loadSymbol(market, symbol);
+      await loadSymbol(market, symbol, interval, { quiet: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    }
+    } finally { setSubmitting(false); }
   }
 
+  async function controlRunner(action: "tick" | "toggle") {
+    if (runnerBusy) return;
+    setRunnerBusy(true);
+    try {
+      setRunner(await (action === "tick" ? api.runnerTick() : runner?.running ? api.runnerStop() : api.runnerStart()));
+      await loadBlotter({ quiet: true });
+    } catch (err) { setError(String(err)); }
+    finally { setRunnerBusy(false); }
+  }
+
+  const state = bookState(runner, market);
+  const canSubmit = canSubmitOrder({
+    submitting, loading: symbolLoading, quoteError: symbolError, hasAccount: !!account,
+    symbol, instrumentSymbol: instrument?.symbol, quoteSymbol: quote?.symbol, quantity: qty, last: quote?.last,
+  });
   const changeClass = (quote?.change ?? 0) >= 0 ? "up" : "down";
   const estNotional = (quote?.last ?? 0) * qty * (instrument?.multiplier ?? 1);
 
@@ -296,79 +336,37 @@ export function App() {
     <div className="terminal">
       <TradeToasts items={tradeToasts} />
       <header className="topbar">
-        <div className="brand">QuantiT <span>paper</span></div>
-        <div className="pages">
-          <button className={page === "desk" ? "active" : ""} onClick={() => goPage("desk")}>Desk</button>
-          <button className={page === "portfolio" ? "active" : ""} onClick={() => goPage("portfolio")}>Portfolio</button>
-          <button className={page === "research" ? "active" : ""} onClick={() => goPage("research")}>Research</button>
-        </div>
-        {page === "desk" ? (
-          <>
-            <div className="markets">
-              {markets.filter((m) => (DESK_MARKET_IDS as readonly string[]).includes(m.id)).map((m) => (
-                <button
-                  key={m.id}
-                  className={m.id === market ? "active" : ""}
-                  onClick={() => switchMarket(m.id)}
-                >
-                  {marketUi(m.id).label}
-                </button>
-              ))}
-            </div>
-            <form className="search" onSubmit={onSearch}>
-              <input value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="Symbol" />
-              <button type="submit" disabled={symbolLoading}>
-                {symbolLoading ? <span className="spinner" aria-label="loading" /> : "Go"}
-              </button>
-            </form>
-          </>
-        ) : null}
-        {page === "desk" ? (
-        <div className="session">
-          {currentMarket ? `${currentMarket.session_hours} · delayed` : "delayed quotes"}
-          {currentMarket?.allowed_asset_classes?.length ? ` · ${currentMarket.allowed_asset_classes.join("/")}` : ""}
-        </div>
-        ) : null}
+        <button className="brand" onClick={() => goPage("overview")}>QuantiT <span>模拟交易</span></button>
+        <nav className="pages" aria-label="主导航">
+          {([["overview", "策略总览"], ["desk", "交易工作台"], ["portfolio", "资产组合"], ["research", "因子研究"]] as const).map(([id, title]) =>
+            <button key={id} aria-current={page === id ? "page" : undefined} className={page === id ? "active" : ""} onClick={() => goPage(id)}>{title}</button>)}
+        </nav>
+        <span className={`status-pill ${runner?.running ? "success" : "neutral"}`}>{runner ? runner.running ? "调度运行中" : "调度已暂停" : "连接中"}</span>
       </header>
+      {error ? <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="关闭提示">×</button></div> : null}
+      {page === "overview" ? <>
+        <StrategyOverview markets={markets} accounts={accounts} runner={runner}
+          onOpen={(id) => { goPage("desk"); void switchMarket(id); }} onResearch={() => goPage("research")} />
+        <div className="runner-controls"><span>策略调度 · 最近评估 {runner?.last_tick ? new Date(runner.last_tick.endsWith("Z") ? runner.last_tick : `${runner.last_tick}Z`).toLocaleString("zh-CN") : "—"}</span>
+          <button disabled={runnerBusy || !runner} onClick={() => controlRunner("tick")}>{runnerBusy ? "处理中…" : "评估自动策略"}</button>
+          <button disabled={runnerBusy || !runner} onClick={() => controlRunner("toggle")}>{runner?.running ? "暂停策略调度" : "启动策略调度"}</button></div>
+      </> : null}
       {page === "portfolio" ? <PortfolioPage /> : null}
       {page === "research" ? <CloseloopPage /> : null}
-      {page === "desk" && runner ? (
-        <div className="runner-bar">
-          <span className={runner.running ? "live" : "off"}>{runner.running ? "LIVE" : "PAUSED"}</span>
-          <span>US {fmt(runner.cash?.us ?? accounts.find((a) => a.market_id === "us")?.cash, 0)} / {fmt(runner.cash?.us_book ?? accounts.find((a) => a.market_id === "us_book")?.cash, 0)} USD</span>
-          <span>HK {fmt(runner.cash?.hk ?? accounts.find((a) => a.market_id === "hk")?.cash, 0)} / {fmt(runner.cash?.hk_theme ?? accounts.find((a) => a.market_id === "hk_theme")?.cash, 0)} HKD</span>
-          <span>CN {fmt(runner.cash?.cn ?? accounts.find((a) => a.market_id === "cn")?.cash, 0)} / {fmt(runner.cash?.cn_etf ?? accounts.find((a) => a.market_id === "cn_etf")?.cash, 0)} CNY</span>
-          <span>{(runner.allowed?.us ?? []).join("/")} · {(runner.allowed?.hk ?? []).join("/")}</span>
-          <span>{runner.last_tick ? `tick ${runner.last_tick.replace("T", " ").slice(0, 19)}` : "waiting for first tick"}</span>
-          {runner.actions[0] ? (
-            <span>{runner.actions[0].side} {runner.actions[0].quantity} {instrumentLabel(runner.actions[0].market_id, runner.actions[0].symbol, runner.actions[0].name)} ({runner.actions[0].status})</span>
-          ) : null}
-          <button type="button" onClick={() => api.runnerTick().then(setRunner).then(() => loadBlotter()).catch((e) => setError(String(e)))}>Run now</button>
-          {runner.running ? (
-            <button type="button" onClick={() => api.runnerStop().then(setRunner).catch((e) => setError(String(e)))}>Pause</button>
-          ) : (
-            <button type="button" onClick={() => api.runnerStart().then(setRunner).catch((e) => setError(String(e)))}>Start</button>
-          )}
-          {runner.last_error ? <span className="banner error">{runner.last_error.split("\n")[0]}</span> : null}
+      {page === "desk" ? <>
+        <div className="desk-context">
+          <div className="markets" aria-label="选择策略账户">{markets.filter((m) => m.id !== "cl" && (DESK_MARKET_IDS as readonly string[]).includes(m.id)).map((m) =>
+            <button key={m.id} disabled={submitting} aria-pressed={m.id === market} className={m.id === market ? "active" : ""} onClick={() => switchMarket(m.id)}>{marketUi(m.id).label}</button>)}</div>
+          <form className="search" onSubmit={onSearch}><input aria-label="标的代码" disabled={submitting} value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="输入标的代码" />
+            <button type="submit" disabled={symbolLoading || submitting || !query.trim()}>{symbolLoading ? "加载中…" : "查看行情"}</button></form>
         </div>
-      ) : null}
-
-      {page === "desk" && runner ? (
-        <div className="runner-bar" aria-label="Independent strategy status">
-          {markets.filter((m) => m.id !== "cl").map((m) => {
-            const state = runner.books?.[m.id];
-            const recovery = runner.recovery?.[m.id];
-            return <span key={m.id} title={state?.error || recovery?.detail || state?.last_tick}>
-              {m.label || m.id}: {state?.state || "waiting"}
-              {!runner.auto_books?.includes(m.id) ? " · manual" : " · auto"}
-              {recovery ? ` · replay ${recovery.day} ${recovery.status}` : ""}
-            </span>;
-          })}
+        <div className="book-context"><strong>{ui.label}</strong><span className={`status-pill ${state.tone}`}>{state.label}</span>
+          <span>可用现金 {fmt(account?.cash)} {account?.currency}</span><span className="session">{currentMarket?.session_hours} · 延迟行情</span>
+          {state.detail ? <details className="status-detail"><summary>查看账户阻塞原因</summary><p>{state.detail}</p></details> : null}
         </div>
-      ) : null}
-
+      </> : null}
       {page === "desk" ? (
-      <main className="dashboard">
+      <main className="dashboard desk-dashboard" aria-busy={blotterLoading}>
         <ResizableCard id="chart" className="chart" loading={symbolLoading} minWidth={360} minHeight={280}>
           <div className="quote-bar">
             <div>
@@ -403,55 +401,48 @@ export function App() {
               ))}
             </div>
           </div>
-          <ReasonBanner signals={signals?.signals ?? []} />
+          {symbolError ? <details className="quote-error" role="alert">
+            <summary>{quote ? "行情刷新失败，保留上次行情；手动下单已暂停" : "行情暂不可用，手动下单已暂停"}</summary>
+            <p>{symbolError}</p>
+          </details> : null}
           <KLineChart bars={bars} />
-          {error ? <div className="banner error">{error}</div> : null}
+          <ReasonBanner signals={signals?.signals ?? []} />
         </ResizableCard>
 
-        <ResizableCard id="order" title="Order" className="ticket" loading={symbolLoading} minWidth={240} minHeight={280}>
+        <ResizableCard id="order" title="手动模拟下单" className="ticket" loading={symbolLoading} minWidth={240} minHeight={280}>
           <p className="hint">{ui.lotHint}{currentMarket?.t_plus ? ` · T+${currentMarket.t_plus}` : ""}</p>
           <label>
-            Quantity
+            数量
             <input type="number" min={1} value={qty} onChange={(e) => setQty(Number(e.target.value))} />
           </label>
-          <p className="est">Est. notional {fmt(estNotional, ui.pricePrecision)} {account?.currency}</p>
-          <p className="cash">Cash {fmt(account?.cash)} {account?.currency}</p>
+          <p className="est">预计金额 {fmt(estNotional, ui.pricePrecision)} {account?.currency}</p>
+          <p className="cash">可用现金 {fmt(account?.cash)} {account?.currency}</p>
           <div className="sides">
-            <button className="buy" onClick={() => submit("buy")}>Buy</button>
-            <button className="sell" onClick={() => submit("sell")}>Sell</button>
+            <button className="buy" disabled={!canSubmit} onClick={() => submit("buy")}>{submitting ? "提交中…" : "模拟买入"}</button>
+            <button className="sell" disabled={!canSubmit} onClick={() => submit("sell")}>模拟卖出</button>
           </div>
           {message ? <p className="msg">{message}</p> : null}
 
-          {signals?.signals.length ? (
-            <div className="ticket-reasons">
-              <h3>Why</h3>
-              {signals.signals.map((s) => (
-                <p key={s.strategy_id}>
-                  <span className={`chip-action ${s.action}`}>{s.action}</span>
-                  {s.reason}
-                </p>
-              ))}
-            </div>
-          ) : null}
-
+          <p className="hint">订单仅记入 {ui.label} 模拟账户。手续费及可成交数量由账户规则校验。</p>
           {selectedOrder ? (
             <div className="detail">
-              <h3>Order #{selectedOrder.id}</h3>
+              <h3>委托 #{selectedOrder.id}</h3>
+              <p>{instrumentLabel(selectedOrder.market_id, selectedOrder.symbol, selectedOrder.name)} · {ui.label}</p>
               <dl>
-                <dt>Status</dt><dd>{selectedOrder.status}</dd>
-                <dt>Side</dt><dd>{selectedOrder.side}</dd>
-                <dt>Qty</dt><dd>{selectedOrder.quantity}</dd>
-                <dt>Fill</dt><dd>{fmt(selectedOrder.fill_price, ui.pricePrecision)}</dd>
-                <dt>Commission</dt><dd>{fmt(selectedOrder.commission, 4)}</dd>
+                <dt>状态</dt><dd>{selectedOrder.status}</dd>
+                <dt>方向</dt><dd>{selectedOrder.side === "buy" ? "买入" : "卖出"}</dd>
+                <dt>数量</dt><dd>{selectedOrder.quantity}</dd>
+                <dt>成交价</dt><dd>{fmt(selectedOrder.fill_price, ui.pricePrecision)}</dd>
+                <dt>手续费</dt><dd>{fmt(selectedOrder.commission, 4)}</dd>
                 {selectedOrder.rationale ? (
                   <>
-                    <dt>Why</dt>
+                    <dt>执行依据</dt>
                     <dd className="wrap">{selectedOrder.rationale}</dd>
                   </>
                 ) : null}
                 {selectedOrder.reject_reason ? (
                   <>
-                    <dt>Rejected</dt>
+                    <dt>拒绝原因</dt>
                     <dd>{selectedOrder.reject_reason}</dd>
                   </>
                 ) : null}
@@ -462,9 +453,9 @@ export function App() {
 
         <div className="desk-tabs">
           {([
-            ["blotter", "Blotter"],
-            ["strategies", "Strategies"],
-            ["notes", "Notes"],
+            ["blotter", "账户记录"],
+            ["strategies", "策略说明"],
+            ["notes", "研究笔记"],
           ] as const).map(([id, label]) => (
             <button key={id} className={desk === id ? "active" : ""} onClick={() => setDesk(id)}>
               {label}
@@ -472,73 +463,12 @@ export function App() {
           ))}
         </div>
 
-        {desk === "blotter" ? (
-          <>
-            <ResizableCard id="positions" title="Positions" className="pane" loading={blotterLoading}>
-              <table>
-                <thead>
-                  <tr><th>Mkt</th><th>Symbol</th><th>Qty</th><th>Avg</th></tr>
-                </thead>
-                <tbody>
-                  {positions.length === 0 ? (
-                    <tr><td colSpan={4}>No positions</td></tr>
-                  ) : positions.map((p) => (
-                    <tr key={`${p.market_id}-${p.symbol}`} onClick={() => { setMarket(p.market_id); loadSymbol(p.market_id, p.symbol); }}>
-                      <td>{p.market_id}</td>
-                      <td>{instrumentLabel(p.market_id, p.symbol, p.name)}</td>
-                      <td>{p.quantity}</td>
-                      <td>{fmt(p.avg_cost)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ResizableCard>
-            <ResizableCard id="trades" title="Trades" className="pane" loading={blotterLoading}>
-              <table>
-                <thead>
-                  <tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th></tr>
-                </thead>
-                <tbody>
-                  {trades.length === 0 ? (
-                    <tr><td colSpan={5}>No trades</td></tr>
-                  ) : trades.map((t) => (
-                    <tr key={t.id}>
-                      <td>{t.timestamp.replace("T", " ").slice(0, 19)}</td>
-                      <td>{instrumentLabel(t.market_id, t.symbol, t.name)}</td>
-                      <td className={t.side}>{t.side}</td>
-                      <td>{t.quantity}</td>
-                      <td>{fmt(t.price)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ResizableCard>
-            <ResizableCard id="orders" title="Orders" className="pane" loading={blotterLoading}>
-              <table>
-                <thead>
-                  <tr><th>ID</th><th>Symbol</th><th>Status</th><th>Qty</th><th>Why</th></tr>
-                </thead>
-                <tbody>
-                  {orders.length === 0 ? (
-                    <tr><td colSpan={5}>No orders</td></tr>
-                  ) : orders.map((o) => (
-                    <tr key={o.id} onClick={() => setSelectedOrder(o)}>
-                      <td>{o.id}</td>
-                      <td>{instrumentLabel(o.market_id, o.symbol, o.name)}</td>
-                      <td>{o.status}</td>
-                      <td>{o.quantity}</td>
-                      <td className="why">{o.rationale ?? "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </ResizableCard>
-          </>
-        ) : null}
+        {desk === "blotter" ? <BookLedger key={market} market={market} positions={positions} trades={trades} orders={orders}
+          onSymbol={(next) => { if (!submitting) void loadSymbol(market, next); }} onOrder={setSelectedOrder} /> : null}
         {desk === "strategies" ? (
-          <ResizableCard id="strategies" title="Strategies" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
+          <ResizableCard id="strategies" title="策略说明" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
             <StrategyDesk
-              strategies={strategies}
+              strategies={strategies.filter((s) => s.book_id ? s.book_id === market : s.markets.includes(market))}
               selectedId={strategyId}
               onSelect={setStrategyId}
               market={market}
@@ -546,7 +476,7 @@ export function App() {
           </ResizableCard>
         ) : null}
         {desk === "notes" ? (
-          <ResizableCard id="notes" title="Notes" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
+          <ResizableCard id="notes" title="研究笔记" className="wide" loading={deskLoading} minWidth={360} minHeight={220}>
             <NotesBoard
               notes={notes}
               market={market}
