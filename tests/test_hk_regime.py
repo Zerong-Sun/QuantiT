@@ -5,15 +5,40 @@ from __future__ import annotations
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import pytest
 import yaml
 
 from quantit.engine.backtester import Backtester
 from quantit.features.regime import compute_theme_scores, scores_to_theme_weights
+from quantit.features.regime import _weighted_z, international_score
 from quantit.markets.hk import HK_PROFILE, HSTECH_THEMES, all_hstech_symbols, theme_of
 from quantit.policy.calendar import PolicyCalendar
 from quantit.strategy.regime import ThemeRotationStrategy, feasible_hk_weights, is_month_end
 from quantit.strategy.technical import MACrossoverStrategy
+
+
+def test_signed_weights_preserve_direction_and_renormalize_available_inputs():
+    a = pd.Series([1.0, 1.0, np.nan, np.nan])
+    b = pd.Series([1.0, np.nan, 2.0, np.nan])
+    result = _weighted_z([(-0.75, a), (0.25, b)])
+    assert result.iloc[:3].tolist() == pytest.approx([-0.5, -1.0, 2.0])
+    assert pd.isna(result.iloc[3])
+
+
+def test_international_factor_is_not_disabled_by_negative_weight_sum():
+    dates = pd.bdate_range("2020-01-01", periods=350)
+    x = np.arange(len(dates))
+    macros = pd.DataFrame({
+        "dxy": 100 + np.sin(x / 20),
+        "us10y": 2 + np.cos(x / 30) / 10,
+        "nasdaq": 8000 + x**1.5,
+        "cny": 7 + np.sin(x / 40) / 10,
+    }, index=dates)
+    result = international_score(macros)
+    assert result.dropna().size > 100
+    assert result.dropna().abs().max() > 0
+    assert result.dropna().between(-2, 2).all()
 
 
 def _ohlcv(n: int, start: str, start_price: float, volume: float = 1_000_000.0) -> pd.DataFrame:

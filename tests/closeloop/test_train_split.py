@@ -36,3 +36,28 @@ def test_small_sample_never_splits_same_day(days):
 def test_invalid_split_fraction(frac):
     with pytest.raises(ValueError, match="train_frac"):
         train_predict_ic(dataset(), frac)
+
+
+def test_training_failure_is_not_silently_replaced_with_another_model(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from closeloop.model.train import _predict_numpy
+    class BrokenModel:
+        def __init__(self, **kwargs):
+            pass
+        def fit(self, x, y):
+            raise ValueError("invalid training input")
+    monkeypatch.setitem(sys.modules, "lightgbm", SimpleNamespace(LGBMRegressor=BrokenModel))
+    with pytest.raises(ValueError, match="invalid training input"):
+        _predict_numpy(np.ones((3, 1)), np.ones(3), np.ones((2, 1)))
+
+
+def test_missing_optional_models_use_explicit_numpy_backend(monkeypatch):
+    import sys
+    from closeloop.model.train import _predict_numpy
+    monkeypatch.setitem(sys.modules, "lightgbm", None)
+    monkeypatch.setitem(sys.modules, "sklearn", None)
+    monkeypatch.delitem(sys.modules, "sklearn.linear_model", raising=False)
+    pred, backend = _predict_numpy(np.array([[1.], [2.], [3.]]), np.array([2., 4., 6.]), np.array([[4.]]))
+    assert backend == "numpy"
+    assert pred[0] == pytest.approx(8.)

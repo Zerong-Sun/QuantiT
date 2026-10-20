@@ -192,7 +192,6 @@ class PaperRunner:
         self.last_tick: datetime | None = None
         self.last_error: str | None = None
         self.actions: list[dict[str, Any]] = []
-        self._acted: set[tuple[str, str, date]] = set()
         self._last_eval: dict[tuple[str, str], datetime] = {}
         # Serializes tick() so the background loop and manual/desk ticks cannot
         # interleave on the shared broker session (which caused duplicate orders).
@@ -264,13 +263,20 @@ class PaperRunner:
             self._stop.set()
 
     def _loop(self, stop: threading.Event) -> None:
-        if stop.is_set():
-            return
-        self.tick()
-        while not stop.wait(self.interval_sec):
-            if not self.running:
-                return
-            self.tick()
+        try:
+            while not stop.is_set():
+                try:
+                    self.tick()
+                except Exception as exc:
+                    # A transient orchestration/database failure must not silently
+                    # kill the thread while the API still advertises running=True.
+                    self.last_error = f"Runner tick failed: {exc}"
+                if stop.wait(self.interval_sec):
+                    break
+        finally:
+            with self._lifecycle_lock:
+                if self._stop is stop:
+                    self.running = False
 
     def tick(
         self,
@@ -285,7 +291,7 @@ class PaperRunner:
         ``QUANTIT_US_BOOK_AUTO`` is ``1``/``true``/``yes``. Explicit ``markets=`` that
         includes ``us_book`` still runs that sleeve for manual testing.
         ``force`` skips today's already-acted marks so a desk can pull a sleeve again
-        the same day.
+        the same day. It never bypasses an incomplete historical recovery.
         """
         wanted = set(markets) if markets is not None else default_auto_books()
         unknown = wanted - set(DESK_BOOK_IDS) - {"cl"}
@@ -307,7 +313,7 @@ class PaperRunner:
                 blocked = self.broker._guarded(lambda: self.broker.session.query(RecoveryDay).filter(
                     RecoveryDay.market_id == book, RecoveryDay.status != "complete",
                 ).first())
-                if blocked is not None and not force and not self.recovery_mode:
+                if blocked is not None and not self.recovery_mode:
                     self.book_status[book] = {
                         "state": "blocked", "last_tick": self.broker.now().isoformat(),
                         "error": f"Historical recovery {blocked.day}: {blocked.detail}", "orders": 0,

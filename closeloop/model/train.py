@@ -1,6 +1,8 @@
-"""Walk-forward style single split: train then OOS predicted IC."""
+"""Purged chronological holdout: train then out-of-sample predicted IC."""
 
 from __future__ import annotations
+
+from importlib import import_module
 
 import numpy as np
 import pandas as pd
@@ -12,21 +14,26 @@ def _predict_numpy(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray)
     train_y = np.nan_to_num(train_y, nan=0.0)
     try:
         import lightgbm as lgb
-
+    except ModuleNotFoundError as exc:
+        if exc.name != "lightgbm":
+            raise
+    else:
         model = lgb.LGBMRegressor(n_estimators=80, learning_rate=0.05, verbosity=-1)
         model.fit(train_x, train_y)
         return model.predict(test_x), "lightgbm"
-    except Exception:
-        pass
     try:
+        import_module("sklearn")
+    except ModuleNotFoundError as exc:
+        if exc.name != "sklearn":
+            raise
+    else:
         from sklearn.linear_model import LinearRegression
 
         model = LinearRegression()
         model.fit(train_x, train_y)
         return model.predict(test_x), "sklearn"
-    except Exception:
-        beta, *_ = np.linalg.lstsq(train_x, train_y, rcond=None)
-        return test_x @ beta, "numpy"
+    beta, *_ = np.linalg.lstsq(train_x, train_y, rcond=None)
+    return test_x @ beta, "numpy"
 
 
 def train_predict_ic(dataset: pd.DataFrame, train_frac: float = 0.7) -> dict:

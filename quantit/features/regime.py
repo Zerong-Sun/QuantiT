@@ -68,14 +68,15 @@ def theme_equal_weight_return(
 
 def _weighted_z(parts: list[tuple[float, pd.Series]]) -> pd.Series:
     """Weight z-scored series, dropping missing columns and renormalizing weights."""
-    usable = [(w, s.dropna()) for w, s in parts if s is not None and not s.empty]
+    usable = [(w, s) for w, s in parts if s is not None and not s.empty]
     if not usable:
         return pd.Series(dtype=float)
     aligned = pd.concat([s.rename(str(i)) for i, (_, s) in enumerate(usable)], axis=1)
     weights = np.array([w for w, _ in usable], dtype=float)
     mask = aligned.notna()
     # Per-row renormalize over available factors
-    w_row = mask.to_numpy() * weights
+    # Signs express economic direction, not negative normalization mass.
+    w_row = mask.to_numpy() * np.abs(weights)
     w_sum = w_row.sum(axis=1)
     w_sum = np.where(w_sum <= 0, np.nan, w_sum)
     values = aligned.to_numpy()

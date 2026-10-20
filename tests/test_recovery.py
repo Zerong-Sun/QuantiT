@@ -93,8 +93,16 @@ def test_replay_no_trade_days_are_durable_and_idempotent(tmp_path, monkeypatch):
     assert len(first) == 5
     assert all(r["status"] == "complete" for r in first)
     assert broker.session.query(RecoveryDay).count() == 5
+    original_export = json.loads((tmp_path/"result.json").read_text())
     assert replay(broker, tmp_path, "2024-01-02", "2024-01-08", books=("us",)) == []
+    assert json.loads((tmp_path/"result.json").read_text()) == original_export
     assert broker.list_trades() == []
+    # A changed adjusted-price snapshot must never be mixed into this ledger.
+    frame["close"] *= 2
+    frame.to_parquet(tmp_path/"bars.parquet")
+    with pytest.raises(ValueError, match="protocol changed"):
+        replay(broker, tmp_path, "2024-01-02", "2024-01-08", books=("us",))
+    assert json.loads((tmp_path/"result.json").read_text()) == original_export
 
 
 def test_copy_never_overwrites_source_or_existing_destination(tmp_path):
@@ -129,6 +137,41 @@ def test_blocked_recovery_is_not_skipped_after_partial_fills(tmp_path, monkeypat
     runner = PaperRunner(broker)
     assert runner.tick(markets=("us",)) == []
     assert runner.book_status["us"]["state"] == "blocked"
+    assert runner.tick(markets=("us",), force=True) == []
+    assert runner.book_status["us"]["state"] == "blocked"
+
+
+def test_us_recovery_does_not_require_unrelated_macro_data(tmp_path, monkeypatch):
+    from quantit.paper import recovery
+    _ohlcv(n=1).to_parquet(tmp_path/"bars.parquet")
+    (tmp_path/"manifest.json").write_text(json.dumps({
+        "AAPL": {"file": "bars.parquet"}, "SPY": {"file": "bars.parquet"},
+    }))
+    monkeypatch.setitem(recovery.BOOK_SYMBOLS, "us", ("AAPL",))
+    monkeypatch.setattr(PaperRunner, "_tick_us", lambda *a, **k: [])
+    broker = PaperBroker(create_session("sqlite:///:memory:"), _registry())
+    broker.ensure_accounts()
+    assert replay(broker, tmp_path, "2024-01-02", "2024-01-02", books=("us",))[0]["status"] == "complete"
+
+
+def test_background_recovers_from_tick_failure_and_reports_stopped(monkeypatch):
+    runner = PaperRunner(PaperBroker(create_session("sqlite:///:memory:"), _registry()), interval_sec=0.01)
+    attempted = []
+    recovered = threading.Event()
+    def tick():
+        attempted.append(True)
+        if len(attempted) == 1:
+            raise RuntimeError("temporary database failure")
+        recovered.set()
+        runner.stop()
+    monkeypatch.setattr(runner, "tick", tick)
+    runner.start_background()
+    assert recovered.wait(3)
+    runner._thread.join(timeout=3)
+    assert not runner._thread.is_alive()
+    assert not runner.running
+    assert len(attempted) == 2
+    assert "temporary database failure" in runner.last_error
 
 
 def test_session_close_uses_venue_timezone_and_dst():

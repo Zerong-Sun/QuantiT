@@ -8,6 +8,7 @@ evidence of orders actually executed on those historical dates.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, time, timezone
@@ -156,15 +157,22 @@ def replay(broker: PaperBroker, root: Path, start: str, end: str, books=DESK_BOO
         raise ValueError("Only desk books can be recovered; Closeloop is separate")
     manifest = json.loads((root / "manifest.json").read_text())
     frames = {symbol: pd.read_parquet(root / row["file"]) for symbol, row in manifest.items() if "file" in row}
-    macros = pd.concat(
-        [frames[s]["close"].rename(name) for name, s in DEFAULT_MACRO_SYMBOLS.items() if s in frames], axis=1
-    ).sort_index()
+    macro_parts = [
+        frames[s]["close"].rename(name) for name, s in DEFAULT_MACRO_SYMBOLS.items() if s in frames
+    ]
+    macros = pd.concat(macro_parts, axis=1).sort_index() if macro_parts else pd.DataFrame()
     # US daily closes are not known at the same date's Asian close.
     macros = macros.shift(1).ffill()
     hk_scores = compute_theme_scores({s: frames[s] for s in all_hstech_symbols() if s in frames}, macros)
     cn_scores = compute_cn_etf_scores({s: frames[s] for s in BOOK_SYMBOLS["cn_etf"] if s in frames}, macros)
     audit = {
+        "replay_version": 2,
         "start": start, "end": end, "books": list(books),
+        "inputs": {
+            symbol: hashlib.sha256((root / row["file"]).read_bytes()).hexdigest()
+            if "file" in row else row
+            for symbol, row in manifest.items()
+        },
         "mode": "historical paper reconstruction; frozen current parameters; delayed-close analog",
         "parameters": {name: strategy_params(name) for name in (
             "tsmom", "us_book", "hk_quality_book", "theme_rotation", "cn_quality_book", "cn_etf_rotation")},
@@ -176,6 +184,9 @@ def replay(broker: PaperBroker, root: Path, start: str, end: str, books=DESK_BOO
         previous_protocol = json.loads(protocol_path.read_text())
         if previous_protocol.get("parameters") != audit["parameters"]:
             raise ValueError("Parameters changed since this recovery bundle was frozen")
+        for key in ("replay_version", "start", "end", "books", "inputs"):
+            if previous_protocol.get(key) != audit[key]:
+                raise ValueError(f"Recovery protocol changed ({key}); use a new bundle and database copy")
     protocol_path.write_text(json.dumps(audit, ensure_ascii=False, indent=2, default=str))
     results = []
     for book in books:
@@ -234,7 +245,20 @@ def replay(broker: PaperBroker, root: Path, start: str, end: str, books=DESK_BOO
             results.append({"book": book, "day": key[1], "status": row.status, "equity": row.equity, "detail": row.detail})
             if row.status != "complete":
                 break
-    (root / "result.json").write_text(json.dumps(results, ensure_ascii=False, indent=2))
+    # The return value describes work done now; the export is the durable ledger.
+    # A no-op resume must not erase the evidence from an earlier successful run.
+    ledger = [
+        {"book": row.market_id, "day": row.day, "status": row.status,
+         "equity": row.equity, "detail": row.detail}
+        for row in broker.session.query(RecoveryDay).order_by(
+            RecoveryDay.market_id, RecoveryDay.day
+        ).all()
+    ]
+    ledger.extend(item for item in results if "day" not in item)
+    result_path = root / "result.json"
+    temporary = result_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(ledger, ensure_ascii=False, indent=2))
+    temporary.replace(result_path)
     return results
 
 
