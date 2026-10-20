@@ -6,6 +6,7 @@ import { KLineChart } from "./components/KLineChart";
 import { NotesBoard } from "./components/NotesBoard";
 import { CloseloopPage } from "./components/CloseloopPage";
 import { HistoryPage } from "./components/HistoryPage";
+import { ObservatoryPage } from "./components/ObservatoryPage";
 import { PortfolioPage } from "./components/PortfolioPage";
 import { ReasonBanner, signalRationale } from "./components/ReasonBanner";
 import { canSubmitOrder } from "./orderEligibility";
@@ -31,10 +32,11 @@ import type {
 
 const POLL_MS = 15_000;
 type DeskTab = "blotter" | "strategies" | "notes";
-type Page = "overview" | "desk" | "portfolio" | "research" | "history";
+type Page = "overview" | "desk" | "portfolio" | "research" | "history" | "observatory";
 
 function readPage(): Page {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  if (path.endsWith("/observatory") || window.location.hash === "#/observatory") return "observatory";
   if (path.endsWith("/history") || window.location.hash === "#/history") return "history";
   if (path.endsWith("/research") || window.location.hash === "#/research") {
     return "research";
@@ -211,7 +213,7 @@ export function App() {
   }
 
   function goPage(next: Page) {
-    const url = next === "history" ? "/history" : next === "portfolio" ? "/portfolio" : next === "research" ? "/research" : next === "desk" ? "/desk" : "/";
+    const url = next === "observatory" ? "/observatory" : next === "history" ? "/history" : next === "portfolio" ? "/portfolio" : next === "research" ? "/research" : next === "desk" ? "/desk" : "/";
     window.history.pushState({ page: next }, "", url);
     setPage(next);
     window.scrollTo(0, 0);
@@ -340,7 +342,7 @@ export function App() {
       <header className="topbar">
         <button className="brand" onClick={() => goPage("overview")}>QuantiT <span>模拟交易</span></button>
         <nav className="pages" aria-label="主导航">
-          {([["overview", "策略总览"], ["desk", "交易工作台"], ["portfolio", "资产组合"], ["history", "逐日历史"], ["research", "因子研究"]] as const).map(([id, title]) =>
+          {([["overview", "策略总览"], ["desk", "交易工作台"], ["portfolio", "资产组合"], ["history", "逐日历史"], ["observatory", "宏观与事件"], ["research", "因子研究"]] as const).map(([id, title]) =>
             <button key={id} aria-current={page === id ? "page" : undefined} className={page === id ? "active" : ""} onClick={() => goPage(id)}>{title}</button>)}
         </nav>
         <span className={`status-pill ${runner?.running ? "success" : "neutral"}`}>{runner ? runner.running ? "调度运行中" : "调度已暂停" : "连接中"}</span>
@@ -354,6 +356,7 @@ export function App() {
           <button disabled={runnerBusy || !runner} onClick={() => controlRunner("toggle")}>{runner?.running ? "暂停策略调度" : "启动策略调度"}</button></div>
       </> : null}
       {page === "history" ? <HistoryPage /> : null}
+      {page === "observatory" ? <ObservatoryPage /> : null}
       {page === "portfolio" ? <PortfolioPage /> : null}
       {page === "research" ? <CloseloopPage /> : null}
       {page === "desk" ? <>

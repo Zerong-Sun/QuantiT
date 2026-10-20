@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from quantit.api.closeloop_bridge import LoopWorker, attach_closeloop_routes, make_worker
 from quantit.api.frontend import mount_frontend
 from quantit.api.history import attach_history_routes
+from quantit.api.observatory import attach_observatory_routes
+from quantit.observatory.service import ObservatoryWorker
 from quantit.api.schemas import (
     AccountOut,
     BarOut,
@@ -105,6 +107,7 @@ def create_app(
 
     if closeloop_worker is None:
         closeloop_worker = make_worker() if owned else LoopWorker(force_fixture=True)
+    observatory = ObservatoryWorker()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -114,7 +117,10 @@ def create_app(
             runner.start_background()
         if autostart_cl:
             closeloop_worker.start_background()
+        if owned and os.environ.get("QUANTIT_OBSERVATORY", "1") != "0":
+            observatory.start()
         yield
+        observatory.stop()
         runner.stop()
         closeloop_worker.stop()
 
@@ -132,6 +138,7 @@ def create_app(
     app.state.closeloop_worker = closeloop_worker
     attach_closeloop_routes(app, broker, closeloop_worker)
     attach_history_routes(app)
+    attach_observatory_routes(app, observatory)
 
     def _adapter(market_id: str):
         try:

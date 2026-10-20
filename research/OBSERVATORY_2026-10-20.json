@@ -1,0 +1,325 @@
+{
+  "checked_at": "2026-10-20T15:20:23.037035+00:00",
+  "series_count": 26,
+  "curve_requests_checked": 208,
+  "raw_hashes_checked": 21,
+  "independent_ff_volatility_check": true,
+  "nonfarm_50y_csv_data_rows": 600,
+  "news_articles": 102,
+  "news_sources": [
+    {
+      "id": "fed",
+      "name": "美联储公告",
+      "fetched_at": "2026-10-20T15:10:23.244803+00:00",
+      "error": null,
+      "stale": false
+    },
+    {
+      "id": "china",
+      "name": "中新网财经",
+      "fetched_at": "2026-10-20T15:10:23.320868+00:00",
+      "error": null,
+      "stale": false
+    },
+    {
+      "id": "world",
+      "name": "BBC 商业新闻",
+      "fetched_at": "2026-10-20T15:10:30.448748+00:00",
+      "error": null,
+      "stale": false
+    }
+  ],
+  "service": {
+    "state": "waiting",
+    "heartbeat": "2026-10-20T15:20:14.673279+00:00",
+    "fresh": true
+  },
+  "series": [
+    {
+      "id": "us_payroll",
+      "name": "美国新增非农就业",
+      "frequency": "M",
+      "unit": "千人",
+      "first_date": "1939-02-28",
+      "last_date": "2026-09-30",
+      "count": 1052,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_unemployment",
+      "name": "美国失业率",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1948-01-31",
+      "last_date": "2026-09-30",
+      "count": 944,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_cpi",
+      "name": "美国 CPI 同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1914-01-31",
+      "last_date": "2026-09-30",
+      "count": 1352,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_core_cpi",
+      "name": "美国核心 CPI 同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1958-01-31",
+      "last_date": "2026-09-30",
+      "count": 824,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_fed_rate",
+      "name": "美国联邦基金有效利率",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1954-07-31",
+      "last_date": "2026-09-30",
+      "count": 867,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_treasury10",
+      "name": "美国 10 年期国债收益率",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1953-04-30",
+      "last_date": "2026-09-30",
+      "count": 882,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_gdp",
+      "name": "美国实际 GDP 环比折年率",
+      "frequency": "Q",
+      "unit": "%",
+      "first_date": "1947-06-30",
+      "last_date": "2026-06-30",
+      "count": 317,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "us_pce",
+      "name": "美国 PCE 价格同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1960-01-31",
+      "last_date": "2026-08-31",
+      "count": 800,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_cpi",
+      "name": "中国 CPI 同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "2008-01-31",
+      "last_date": "2026-09-30",
+      "count": 225,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_ppi",
+      "name": "中国 PPI 同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "2006-01-31",
+      "last_date": "2026-09-30",
+      "count": 249,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_pmi",
+      "name": "中国制造业 PMI",
+      "frequency": "M",
+      "unit": "指数",
+      "first_date": "2008-01-31",
+      "last_date": "2026-09-30",
+      "count": 225,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_nonmanufacturing",
+      "name": "中国非制造业商务活动指数",
+      "frequency": "M",
+      "unit": "指数",
+      "first_date": "2008-01-31",
+      "last_date": "2026-09-30",
+      "count": 225,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_m2",
+      "name": "中国 M2 同比",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "2008-01-31",
+      "last_date": "2026-09-30",
+      "count": 225,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_gdp_ytd",
+      "name": "中国 GDP 累计同比",
+      "frequency": "Q",
+      "unit": "%",
+      "first_date": "2006-03-31",
+      "last_date": "2026-09-30",
+      "count": 83,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_gdp_annual",
+      "name": "中国实际 GDP 增长（年度长历史）",
+      "frequency": "Y",
+      "unit": "%",
+      "first_date": "1961-12-31",
+      "last_date": "2025-12-31",
+      "count": 65,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "cn_cpi_annual",
+      "name": "中国消费价格通胀（年度）",
+      "frequency": "Y",
+      "unit": "%",
+      "first_date": "1987-12-31",
+      "last_date": "2025-12-31",
+      "count": 39,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "ff_market",
+      "name": "市场超额收益 · Mkt−RF",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1963-07-31",
+      "last_date": "2026-02-28",
+      "count": 752,
+      "state": "cached",
+      "source_notice": "官方下载暂不可达，当前为公开研究仓库中的固定历史镜像，仅截至 2026-02。不是最新官方数据；后台会重试官方来源。"
+    },
+    {
+      "id": "ff_size",
+      "name": "规模因子 · SMB",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1963-07-31",
+      "last_date": "2026-02-28",
+      "count": 752,
+      "state": "cached",
+      "source_notice": "官方下载暂不可达，当前为公开研究仓库中的固定历史镜像，仅截至 2026-02。不是最新官方数据；后台会重试官方来源。"
+    },
+    {
+      "id": "ff_value",
+      "name": "价值因子 · HML",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1963-07-31",
+      "last_date": "2026-02-28",
+      "count": 752,
+      "state": "cached",
+      "source_notice": "官方下载暂不可达，当前为公开研究仓库中的固定历史镜像，仅截至 2026-02。不是最新官方数据；后台会重试官方来源。"
+    },
+    {
+      "id": "ff_profitability",
+      "name": "盈利因子 · RMW",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1963-07-31",
+      "last_date": "2026-02-28",
+      "count": 752,
+      "state": "cached",
+      "source_notice": "官方下载暂不可达，当前为公开研究仓库中的固定历史镜像，仅截至 2026-02。不是最新官方数据；后台会重试官方来源。"
+    },
+    {
+      "id": "ff_investment",
+      "name": "投资因子 · CMA",
+      "frequency": "M",
+      "unit": "%",
+      "first_date": "1963-07-31",
+      "last_date": "2026-02-28",
+      "count": 752,
+      "state": "cached",
+      "source_notice": "官方下载暂不可达，当前为公开研究仓库中的固定历史镜像，仅截至 2026-02。不是最新官方数据；后台会重试官方来源。"
+    },
+    {
+      "id": "local_alpha158_lgbm_h1",
+      "name": "LightGBM 1 日 · 样本外 Rank IC",
+      "frequency": "D",
+      "unit": "IC",
+      "first_date": "2025-06-12",
+      "last_date": "2026-10-19",
+      "count": 328,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "local_alpha158_lgbm_h5",
+      "name": "LightGBM 5 日 · 样本外 Rank IC",
+      "frequency": "D",
+      "unit": "IC",
+      "first_date": "2025-06-12",
+      "last_date": "2026-10-13",
+      "count": 324,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "local_alpha158_lgbm_h10",
+      "name": "LightGBM 10 日 · 样本外 Rank IC",
+      "frequency": "D",
+      "unit": "IC",
+      "first_date": "2025-06-12",
+      "last_date": "2026-09-29",
+      "count": 319,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "local_momentum_20",
+      "name": "20 日动量 · 样本外 Rank IC",
+      "frequency": "D",
+      "unit": "IC",
+      "first_date": "2025-06-12",
+      "last_date": "2026-10-19",
+      "count": 328,
+      "state": "ready",
+      "source_notice": null
+    },
+    {
+      "id": "local_momentum_60",
+      "name": "60 日动量 · 样本外 Rank IC",
+      "frequency": "D",
+      "unit": "IC",
+      "first_date": "2025-06-12",
+      "last_date": "2026-10-19",
+      "count": 328,
+      "state": "ready",
+      "source_notice": null
+    }
+  ]
+}

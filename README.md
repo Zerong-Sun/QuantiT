@@ -13,6 +13,7 @@ A research-oriented quantitative trading platform for US equities, Hong Kong lon
 - **Daily paper histories**: `/history` compares 11 isolated strategies from July 1, 2026, with prior-session signals, next-open simulated fills, corporate actions and daily ledgers. Frozen pre-July Alpha158/LightGBM models and momentum controls run alongside six desk books. See [results and validation](research/JULY_HISTORY_2026-10-20.md) and [continuation operations](research/JULY_HISTORY_OPERATIONS.md).
 - **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, **one cash account per strategy** sharing US/HK/CN venue adapters (US quality TSMOM + US MA/RSI, HK quality TSMOM + Hang Seng TECH rotation, CN quality TSMOM + industry ETFs, plus an isolated **CL ¥1m** CSI300 research book). A-share T+1 and board lots. Top-bar **Research** (`/research`) runs Closeloop (Alpha101 + gates) without mixing into any US/HK/CN paper book.
 - **Analysis**: Performance metrics, Plotly charts, HTML reports
+- **Macro & events**: `/observatory` adds US/China economic indicators, public news feeds and factor monitoring. Compare 5/10/50-year or full histories at each source's actual frequency; inspect period tables and export CSV. Includes 16 macro series, Fama–French five factors and five local out-of-sample IC series. Coverage and stale/fallback data are labelled explicitly. See [coverage, methodology and verification](research/OBSERVATORY_2026-10-20.md).
 - **News / policy**: Finnhub REST polling for headlines. Headlines **do not** trade. `quantit brief` filters policy/geopolitics events into a markdown pack (plus Yahoo international macros). Optional `--llm` writes a YAML calendar proposal; it is **not** auto-merged and the paper runner does not read it.
 
 Alpha158/LightGBM research and isolated paper evaluation are implemented; RL is not implemented. Quotes are delayed public-source data, not a live broker feed.
@@ -105,6 +106,19 @@ See [the 2026-10-20 audit](research/RECOVERY_2026-10-20.md) for strategy invento
 repair checklist, reconstruction results and training recommendations.
 
 ### News setup
+
+The **宏观与事件** navigation item opens `/observatory`. Its economic/factor worker
+checks sources every six hours; its public RSS news section checks every fifteen
+minutes, independently of the optional Finnhub CLI below. It starts with the
+owned API server and keeps atomic caches and source snapshots under
+`~/.quantit/observatory`. Set `QUANTIT_OBSERVATORY_ROOT` to relocate the cache or
+`QUANTIT_OBSERVATORY=0` to disable collection while retaining read access.
+`QUANTIT_OBSERVATORY_EXPERIMENT` can select a frozen local experiment with
+`report.json`, its original panel and prediction files. Without those artifacts,
+local IC series are labelled unavailable; other sources continue updating.
+These are observation tools: current revised macro values are not historical
+release vintages, keyword news tags are not verified risk judgements, and
+neither changes strategy parameters nor submits orders.
 
 1. Register a free key at [finnhub.io/register](https://finnhub.io/register)
 2. Copy `.env.example` to `.env` and set `FINNHUB_API_KEY` (`.env` is gitignored). You can also `export FINNHUB_API_KEY=...`.
