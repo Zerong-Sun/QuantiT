@@ -39,7 +39,7 @@ export function StrategyOverview({ markets, accounts, runner, onOpen, onResearch
       <span className="environment-label">模拟交易 · 资金按账户隔离</span>
     </div>
     <div className="overview-metrics">
-      <div><span>独立策略</span><strong>{books.length || "—"}</strong><small>另有独立因子研究账户</small></div>
+      <div><span>独立策略</span><strong>{books.length || "—"}</strong><small>另有因子账户与模型策略实验</small></div>
       <div><span>历史恢复完成</span><strong>{runner ? complete : "—"}</strong><small>按各市场完整交易日补跑</small></div>
       <div><span>需要关注</span><strong className={blocked ? "warning-text" : ""}>{runner ? blocked : "—"}</strong><small>阻塞账户不影响其他策略</small></div>
     </div>
@@ -64,7 +64,7 @@ export function StrategyOverview({ markets, accounts, runner, onOpen, onResearch
         </article>;
       })}
     </div>
-    <aside className="research-link"><div><h2>因子研究</h2><p>独立查看 Alpha101 因子、验证门槛与研究账户。</p></div>
+    <aside className="research-link"><div><h2>因子与模型研究</h2><p>查看 Alpha101 因子、Alpha158 模型策略和独立回测结果。</p></div>
       <button onClick={onResearch}>打开研究空间 →</button></aside>
   </main>;
 }

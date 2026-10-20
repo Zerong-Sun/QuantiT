@@ -176,3 +176,38 @@ class TestTradingRoutes:
         assert resp.status_code == 200
         assert "text/html" in resp.headers.get("content-type", "")
         assert b"QuantiT" in resp.content
+
+
+class TestStrategyExperimentRoutes:
+    def test_missing_report_is_an_empty_research_state(self, client, monkeypatch, tmp_path):
+        monkeypatch.setenv("QUANTIT_EXPERIMENT_REPORT", str(tmp_path / "absent.json"))
+        result = client.get("/api/v1/closeloop/experiments")
+        assert result.status_code == 200
+        assert result.json() == {"strategies": [], "automatic_trading": False}
+
+    def test_report_cannot_authorize_trading(self, client, monkeypatch, tmp_path):
+        import json
+
+        path = tmp_path / "report.json"
+        path.write_text(json.dumps({"strategies": [{"id": "test", "automatic_trading": True,
+                                                    "portfolio": {}, "test": {}, "ic": {}, "double_cost_test": {},
+                                                    "folds": [], "gate_reasons": [], "promotion_blockers": [],
+                                                    "promotion_eligible": True}],
+                                    "automatic_trading": True, "output_dir": "/private/model"}))
+        monkeypatch.setenv("QUANTIT_EXPERIMENT_REPORT", str(path))
+        result = client.get("/api/v1/closeloop/experiments").json()
+        assert result["automatic_trading"] is False
+        assert result["strategies"][0]["promotion_eligible"] is False
+        assert result["strategies"][0]["mode"] == "shadow"
+        assert "output_dir" not in result
+        assert client.post("/api/v1/closeloop/experiments").status_code == 405
+
+    def test_corrupt_report_is_explicit_error(self, client, monkeypatch, tmp_path):
+        path = tmp_path / "corrupt.json"
+        path.write_text("{")
+        monkeypatch.setenv("QUANTIT_EXPERIMENT_REPORT", str(path))
+        result = client.get("/api/v1/closeloop/experiments")
+        assert result.status_code == 503
+        assert "不可读" in result.json()["detail"]
+        path.write_text('{"strategies":[{"id":"incomplete"}]}')
+        assert client.get("/api/v1/closeloop/experiments").status_code == 503

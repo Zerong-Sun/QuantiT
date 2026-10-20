@@ -256,3 +256,33 @@ export interface CloseloopTraceRow {
   ic_ir?: number | null;
   reasons?: string[];
 }
+
+export interface ExperimentMetrics {
+  sessions: number;
+  stale_valuation_sessions?: number;
+  net_return: number | null;
+  max_drawdown: number | null;
+  sharpe: number | null;
+}
+
+export interface StrategyExperimentReport {
+  data_asof?: string;
+  test_start?: string;
+  test_last_signal?: string;
+  instruments?: number;
+  benchmark?: ExperimentMetrics;
+  limitations?: string[];
+  versions?: { qlib: string; lightgbm: string };
+  strategies: {
+    id: string;
+    name: string;
+    portfolio: { top_k: number; rebalance: number };
+    test: ExperimentMetrics;
+    double_cost_test: ExperimentMetrics;
+    ic: { rank_ic: number | null };
+    folds: ExperimentMetrics[];
+    statistical_gate_passed: boolean;
+    gate_reasons: string[];
+    promotion_blockers: string[];
+  }[];
+}

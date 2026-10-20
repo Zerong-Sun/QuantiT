@@ -74,6 +74,88 @@ Each `validate` / `run` writes `artifacts/library/{id}.json` (IC, IR, spread, tu
 
 ## Training
 
+### Complete strategy experiment (new)
+
+The separate `closeloop.model.experiment` workflow trains **three independent
+Alpha158 + LightGBM candidates** (1/5/10-session targets), plus 20/60-session
+momentum rule controls. All five remain shadow research strategies. The existing
+`closeloop train` command below retains its single-holdout behavior.
+
+```bash
+# Preserve the paper service's .venv; use the existing research .venv311.
+.venv311/bin/python -m closeloop.model.experiment \
+  --data-dir "$HOME/.quantit/closeloop/qlib_cn_2026-10-20" \
+  --output "$HOME/.quantit/closeloop/experiments/alpha158-2026-10-20-v1" \
+  --threads 2
+```
+
+The output directory must be new. A completed run publishes `latest.json` in
+its parent directory. The default API reader uses
+`~/.quantit/closeloop/experiments/latest.json`; `QUANTIT_EXPERIMENT_REPORT` can
+override it. The read-only `/api/v1/closeloop/experiments` endpoint and the
+Research page show the results. No model deserialization or order submission
+occurs in the API.
+
+Protocol:
+
+- Calendar-only 60%/20%/20% train/validation/final holdout boundaries; 60-session
+  feature warm-up. Raw Alpha158 features have no fitted full-sample scaler.
+- Features become usable one global market session later. Missing stock rows
+  stay missing; shifts never skip suspensions.
+- Every model fit purges the prediction horizon plus a five-session embargo.
+  Training targets are date-local percentile ranks of forward close returns.
+- First select holdings (10/20), rebalance frequency (5/10) and two-sided
+  turnover cap (40%/80%) on validation. Then compare two regularized tree
+  configurations on validation using that portfolio configuration. The objective
+  is validation net return minus half the maximum drawdown magnitude.
+- Freeze parameters before three expanding-window test folds. Earlier test
+  history may enter later training only after labels mature and the embargo
+  expires. Test results never select hyperparameters. A separate latest model
+  is trained after evaluation; its predictions are not used for past OOS metrics.
+- Independent long-only portfolios charge 15 bps on buys and 20 bps on sells,
+  including assumed slippage/commission/tax; double-cost sensitivity is reported.
+  Positions drift with returns, cash funds fees, initial entry is charged, and
+  turnover includes both buys and sells. Signals from t−1 execute at t close;
+  t→t+1 returns accrue after that execution. Missing held marks are explicitly
+  flagged, and missing prices, zero volume and extreme daily moves block fills.
+- Comparison is a monthly equal-weight reference on the **same fixed universe**,
+  not an official CSI300 index. Report daily cross-sectional Rank IC, compounded
+  net return, drawdown, Sharpe and three-fold stability.
+- Frozen statistical gates: ≥126 OOS sessions; positive net return, positive
+  Rank IC, outperform reference, maximum drawdown ≤20%, Sharpe ≥0.5, ≥2/3
+  profitable folds, no stale held marks and positive return under double costs.
+
+Even a statistical pass remains **ineligible for automatic trading**: the current
+dump lacks point-in-time membership and adjustment provenance, and the fractional
+daily-close execution proxy does not model board lots, minimum commission or full
+market execution. This is an explicit data/execution gate, not a claim that a
+successful backtest is deployable.
+
+Artifacts include a manifest with data/code SHA-256, package versions, calendar
+boundaries and all trial configurations; lagged features; selected parameters;
+fold/latest LightGBM text models; OOS predictions; daily curves and complete
+JSON reports. Do not tune against a published final holdout and call it untouched.
+
+Audit the completed run independently:
+
+```bash
+.venv311/bin/python -m closeloop.model.verify_experiment \
+  "$HOME/.quantit/closeloop/experiments/alpha158-2026-10-20-v1"
+```
+
+This checks source/panel checksums, verifies Qlib OHLCV bins against the panel,
+checks each fold's purge boundaries, replays all five curves from the saved OOS
+predictions or fixed rules, and writes artifact checksums to `verification.json`.
+
+The implementation reuses the official
+[Qlib Alpha158 handler and LightGBM benchmark approach](https://github.com/microsoft/qlib/tree/main/examples/benchmarks/LightGBM).
+Public configuration values are not pretrained weights or evidence of local
+profitability. Labels, execution assumptions, splits and conservative parameters
+are explicitly recorded for this project rather than claiming a reproduction of
+the official benchmark scores.
+
+### Legacy single-holdout command
+
 `closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. The chronological holdout purges `horizon` sessions before the test set and never splits one date across train/test. This is a single holdout, not rolling walk-forward or a cost-adjusted portfolio return. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
 
 Optional **Alpha158 research feature matrix** — this is qlib's `Alpha158` handler wired to the local CSI300 dump, **not** a complete or promotable Alpha158 trading system. It does not replace Alpha101. Needs `pip install -e '.[closeloop]'` (in `.venv311`, below) and `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins). If pyqlib is missing the builder raises `ImportError`; it does **not** fall back to Alpha101 feature columns. The only shared pieces are the Closeloop `t+horizon` close-return **label** (not qlib `LABEL0`) and the existing `train_predict_ic` helper.

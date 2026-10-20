@@ -235,7 +235,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="List Alpha101 registry").set_defaults(func=_cmd_list)
     sub.add_parser("report", help="Print factor library IC table").set_defaults(func=_cmd_report)
 
-    train_p = sub.add_parser("train", help="Walk-forward IC on Alpha101, or Alpha158 research matrix")
+    train_p = sub.add_parser("train", help="Purged holdout IC on Alpha101 or Alpha158 (not rolling portfolio evaluation)")
     train_p.add_argument("--ids", default="006,012,041,101")
     train_p.add_argument(
         "--features",

@@ -1,0 +1,483 @@
+{
+  "version": "alpha158-shadow-v1",
+  "data_start": "2020-01-02",
+  "data_asof": "2026-10-20",
+  "sessions": 1645,
+  "instruments": 236,
+  "validation_start": "2024-01-25",
+  "test_start": "2025-06-12",
+  "test_last_signal": "2026-10-19",
+  "feature_lag_sessions": 1,
+  "embargo_sessions": 5,
+  "panel_sha256": "3412afa5dd3e22f9316ae60cd3a8e916354a9eb8bbd851879f38aede0df2af7f",
+  "versions": {
+    "python": "3.11.16",
+    "qlib": "0.9.7",
+    "lightgbm": "4.7.0",
+    "pandas": "2.3.3"
+  },
+  "benchmark": {
+    "sessions": 328,
+    "net_return": 0.18596940790656835,
+    "annual_return": 0.14001382403280904,
+    "sharpe": 0.9212001127753112,
+    "max_drawdown": -0.13558786709837245,
+    "mean_turnover": 0.006654623952467991,
+    "cost_sum": 0.0035709087847218086,
+    "stale_valuation_sessions": 1
+  },
+  "limitations": [
+    "固定股票池，非历史时点成分股，存在幸存者偏差",
+    "使用当前复权历史，不是可审计的逐时点行情快照",
+    "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合",
+    "研究结果不保证未来盈利；所有新增策略仅独立影子评估，不接入自动下单"
+  ],
+  "strategies": [
+    {
+      "id": "alpha158_lgbm_h1",
+      "name": "Alpha158 · LightGBM 1 日",
+      "model": "compact",
+      "horizon": 1,
+      "portfolio": {
+        "top_k": 20,
+        "rebalance": 5,
+        "turnover_limit": 0.8,
+        "buy_cost": 0.0015,
+        "sell_cost": 0.002,
+        "limit_threshold": 0.095
+      },
+      "test": {
+        "sessions": 328,
+        "net_return": 0.039536639206549706,
+        "annual_return": 0.030238785680811286,
+        "sharpe": 0.25765337245474573,
+        "max_drawdown": -0.1952945641380993,
+        "mean_turnover": 0.15677835791743994,
+        "cost_sum": 0.08976369483583006,
+        "stale_valuation_sessions": 1
+      },
+      "ic": {
+        "rank_ic": 0.02692445465572469,
+        "rank_ic_ir": 0.12837670020126074,
+        "ic_sessions": 328
+      },
+      "folds": [
+        {
+          "sessions": 110,
+          "net_return": 0.054515977431843554,
+          "annual_return": 0.1293087775156927,
+          "sharpe": 1.357887453997771,
+          "max_drawdown": -0.03859278777553987,
+          "mean_turnover": 0.15297051354666943,
+          "cost_sum": 0.029204601475613337,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": -0.0226961063928508,
+          "annual_return": -0.05169239361344591,
+          "sharpe": -0.39006665437732624,
+          "max_drawdown": -0.06170822224508998,
+          "mean_turnover": 0.15631355486779516,
+          "cost_sum": 0.029824266657696354,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": 0.0086883563207516,
+          "annual_return": 0.020201425192871714,
+          "sharpe": 0.20781117009482464,
+          "max_drawdown": -0.15316215006681244,
+          "mean_turnover": 0.1610859396898807,
+          "cost_sum": 0.030734826702520368,
+          "stale_valuation_sessions": 1
+        }
+      ],
+      "double_cost_test": {
+        "sessions": 328,
+        "net_return": -0.04953236276650863,
+        "annual_return": -0.038278300621614636,
+        "sharpe": -0.13310721157285443,
+        "max_drawdown": -0.24251290589736674,
+        "mean_turnover": 0.15652627138136976,
+        "cost_sum": 0.17928257492430366,
+        "stale_valuation_sessions": 1
+      },
+      "statistical_gate_passed": false,
+      "gate_reasons": [
+        "未跑赢同期等权对照",
+        "年化夏普低于 0.5",
+        "持仓估值存在缺失行情",
+        "双倍交易成本下收益未大于零"
+      ],
+      "promotion_eligible": false,
+      "promotion_blockers": [
+        "固定股票池，非历史时点成分股，存在幸存者偏差",
+        "使用当前复权历史，不是可审计的逐时点行情快照",
+        "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合"
+      ]
+    },
+    {
+      "id": "alpha158_lgbm_h5",
+      "name": "Alpha158 · LightGBM 5 日",
+      "model": "regularized",
+      "horizon": 5,
+      "portfolio": {
+        "top_k": 10,
+        "rebalance": 5,
+        "turnover_limit": 0.8,
+        "buy_cost": 0.0015,
+        "sell_cost": 0.002,
+        "limit_threshold": 0.095
+      },
+      "test": {
+        "sessions": 328,
+        "net_return": 0.10592621822157233,
+        "annual_return": 0.08042465019759582,
+        "sharpe": 0.4665536951949839,
+        "max_drawdown": -0.1408075635002567,
+        "mean_turnover": 0.1607101504708677,
+        "cost_sum": 0.09202181216304385,
+        "stale_valuation_sessions": 1
+      },
+      "ic": {
+        "rank_ic": 0.02890803200779046,
+        "rank_ic_ir": 0.1677700383960683,
+        "ic_sessions": 324
+      },
+      "folds": [
+        {
+          "sessions": 110,
+          "net_return": 0.12972862096582238,
+          "annual_return": 0.3223880602755054,
+          "sharpe": 2.292667741393071,
+          "max_drawdown": -0.03616175148018097,
+          "mean_turnover": 0.1597676099348819,
+          "cost_sum": 0.030514073770632463,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": 0.038975495570619634,
+          "annual_return": 0.09242151748180993,
+          "sharpe": 0.6278555392879646,
+          "max_drawdown": -0.068148903125409,
+          "mean_turnover": 0.16118574431930094,
+          "cost_sum": 0.0307538691962057,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": -0.057792151000382375,
+          "annual_return": -0.12857681812512078,
+          "sharpe": -0.28273316177899,
+          "max_drawdown": -0.14080756350025703,
+          "mean_turnover": 0.16118574431930088,
+          "cost_sum": 0.030753869196205694,
+          "stale_valuation_sessions": 1
+        }
+      ],
+      "double_cost_test": {
+        "sessions": 328,
+        "net_return": 0.008559552753049537,
+        "annual_return": 0.006569743192095467,
+        "sharpe": 0.1386588274367366,
+        "max_drawdown": -0.15544466570587656,
+        "mean_turnover": 0.16044009695962028,
+        "cost_sum": 0.1837793382860633,
+        "stale_valuation_sessions": 1
+      },
+      "statistical_gate_passed": false,
+      "gate_reasons": [
+        "未跑赢同期等权对照",
+        "年化夏普低于 0.5",
+        "持仓估值存在缺失行情"
+      ],
+      "promotion_eligible": false,
+      "promotion_blockers": [
+        "固定股票池，非历史时点成分股，存在幸存者偏差",
+        "使用当前复权历史，不是可审计的逐时点行情快照",
+        "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合"
+      ]
+    },
+    {
+      "id": "alpha158_lgbm_h10",
+      "name": "Alpha158 · LightGBM 10 日",
+      "model": "compact",
+      "horizon": 10,
+      "portfolio": {
+        "top_k": 10,
+        "rebalance": 5,
+        "turnover_limit": 0.8,
+        "buy_cost": 0.0015,
+        "sell_cost": 0.002,
+        "limit_threshold": 0.095
+      },
+      "test": {
+        "sessions": 328,
+        "net_return": 0.19566758856955557,
+        "annual_return": 0.1471693792214488,
+        "sharpe": 0.7011855705522869,
+        "max_drawdown": -0.15984426292268505,
+        "mean_turnover": 0.158168178441553,
+        "cost_sum": 0.09056176132408475,
+        "stale_valuation_sessions": 0
+      },
+      "ic": {
+        "rank_ic": 0.028209667190186895,
+        "rank_ic_ir": 0.1511490237446568,
+        "ic_sessions": 319
+      },
+      "folds": [
+        {
+          "sessions": 110,
+          "net_return": 0.11952930704947362,
+          "annual_return": 0.29519690272394783,
+          "sharpe": 2.5504587608374676,
+          "max_drawdown": -0.036247625681702034,
+          "mean_turnover": 0.1586360437145568,
+          "cost_sum": 0.03029559877304775,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": 0.0815125653211708,
+          "annual_return": 0.19861164049477398,
+          "sharpe": 1.0729567420482211,
+          "max_drawdown": -0.07550159578713356,
+          "mean_turnover": 0.16118574431930088,
+          "cost_sum": 0.030753869196205694,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": -0.012485638729995086,
+          "annual_return": -0.028629772895081285,
+          "sharpe": 0.0920155464471088,
+          "max_drawdown": -0.1598442629226854,
+          "mean_turnover": 0.1546784549488472,
+          "cost_sum": 0.0295122933548313,
+          "stale_valuation_sessions": 0
+        }
+      ],
+      "double_cost_test": {
+        "sessions": 328,
+        "net_return": 0.09196193206110315,
+        "annual_return": 0.06992797095033243,
+        "sharpe": 0.40471472756062854,
+        "max_drawdown": -0.16830347900034248,
+        "mean_turnover": 0.15789222394445598,
+        "cost_sum": 0.18085174888334415,
+        "stale_valuation_sessions": 0
+      },
+      "statistical_gate_passed": true,
+      "gate_reasons": [],
+      "promotion_eligible": false,
+      "promotion_blockers": [
+        "固定股票池，非历史时点成分股，存在幸存者偏差",
+        "使用当前复权历史，不是可审计的逐时点行情快照",
+        "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合"
+      ]
+    },
+    {
+      "id": "momentum_20",
+      "name": "20 日动量对照",
+      "model": "rule",
+      "horizon": 1,
+      "portfolio": {
+        "top_k": 10,
+        "rebalance": 5,
+        "turnover_limit": 0.8,
+        "buy_cost": 0.0015,
+        "sell_cost": 0.002,
+        "limit_threshold": 0.095
+      },
+      "test": {
+        "sessions": 328,
+        "net_return": 1.1399593142925788,
+        "annual_return": 0.794106173871723,
+        "sharpe": 1.5528254402927393,
+        "max_drawdown": -0.4315433396420115,
+        "mean_turnover": 0.1476013523414939,
+        "cost_sum": 0.08449565338701426,
+        "stale_valuation_sessions": 0
+      },
+      "ic": {
+        "rank_ic": -0.004414784987053791,
+        "rank_ic_ir": -0.019212592100373974,
+        "ic_sessions": 328
+      },
+      "folds": [
+        {
+          "sessions": 110,
+          "net_return": 1.0325561698630596,
+          "annual_return": 4.078056075808561,
+          "sharpe": 3.4728662259997485,
+          "max_drawdown": -0.13945528213401281,
+          "mean_turnover": 0.13492720933099894,
+          "cost_sum": 0.025731273844328377,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": 0.48352068719978303,
+          "annual_return": 1.4889618898171322,
+          "sharpe": 2.786514308334174,
+          "max_drawdown": -0.16200550832559624,
+          "mean_turnover": 0.1544430083426994,
+          "cost_sum": 0.029467370684040917,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": -0.29030890889833394,
+          "annual_return": -0.5474325907078432,
+          "sharpe": -1.6248722250802528,
+          "max_drawdown": -0.4315433396420115,
+          "mean_turnover": 0.15355011589216408,
+          "cost_sum": 0.02929700885864496,
+          "stale_valuation_sessions": 0
+        }
+      ],
+      "double_cost_test": {
+        "sessions": 328,
+        "net_return": 0.9677192198548363,
+        "annual_return": 0.6820919019954337,
+        "sharpe": 1.4062271011462024,
+        "max_drawdown": -0.44327487733044824,
+        "mean_turnover": 0.14736362330851838,
+        "cost_sum": 0.1687603736195441,
+        "stale_valuation_sessions": 0
+      },
+      "statistical_gate_passed": false,
+      "gate_reasons": [
+        "最大回撤超过 20%",
+        "样本外日均 Rank IC 未大于零"
+      ],
+      "promotion_eligible": false,
+      "promotion_blockers": [
+        "固定股票池，非历史时点成分股，存在幸存者偏差",
+        "使用当前复权历史，不是可审计的逐时点行情快照",
+        "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合"
+      ]
+    },
+    {
+      "id": "momentum_60",
+      "name": "60 日动量对照",
+      "model": "rule",
+      "horizon": 1,
+      "portfolio": {
+        "top_k": 20,
+        "rebalance": 5,
+        "turnover_limit": 0.8,
+        "buy_cost": 0.0015,
+        "sell_cost": 0.002,
+        "limit_threshold": 0.095
+      },
+      "test": {
+        "sessions": 328,
+        "net_return": 0.8744315586184221,
+        "annual_return": 0.6204801201884371,
+        "sharpe": 1.383395790516623,
+        "max_drawdown": -0.41702546713515953,
+        "mean_turnover": 0.09710868857456018,
+        "cost_sum": 0.055504297317460004,
+        "stale_valuation_sessions": 0
+      },
+      "ic": {
+        "rank_ic": 0.00528355245112533,
+        "rank_ic_ir": 0.02182422493321339,
+        "ic_sessions": 328
+      },
+      "folds": [
+        {
+          "sessions": 110,
+          "net_return": 0.6482672396340801,
+          "annual_return": 2.1418870143740483,
+          "sharpe": 2.8583549571226428,
+          "max_drawdown": -0.1714586882886875,
+          "mean_turnover": 0.08859271563538944,
+          "cost_sum": 0.016808333844606716,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": 0.5144098758385112,
+          "annual_return": 1.6104151931209105,
+          "sharpe": 3.2865663219303274,
+          "max_drawdown": -0.16310194175233728,
+          "mean_turnover": 0.08874174605932046,
+          "cost_sum": 0.016931720991063146,
+          "stale_valuation_sessions": 0
+        },
+        {
+          "sessions": 109,
+          "net_return": -0.24907160335035772,
+          "annual_return": -0.48430499327984255,
+          "sharpe": -1.1985584739502155,
+          "max_drawdown": -0.4170254671351593,
+          "mean_turnover": 0.11406973222107311,
+          "cost_sum": 0.021764242481790142,
+          "stale_valuation_sessions": 0
+        }
+      ],
+      "double_cost_test": {
+        "sessions": 328,
+        "net_return": 0.774073301958139,
+        "annual_return": 0.5533990241378155,
+        "sharpe": 1.2800874813143048,
+        "max_drawdown": -0.4250783892748493,
+        "mean_turnover": 0.0969354958505602,
+        "cost_sum": 0.11083731694711907,
+        "stale_valuation_sessions": 0
+      },
+      "statistical_gate_passed": false,
+      "gate_reasons": [
+        "最大回撤超过 20%"
+      ],
+      "promotion_eligible": false,
+      "promotion_blockers": [
+        "固定股票池，非历史时点成分股，存在幸存者偏差",
+        "使用当前复权历史，不是可审计的逐时点行情快照",
+        "日线收盘成交代理、分数持仓、近似涨跌停和成本；未模拟整手、最低佣金及完整撮合"
+      ]
+    }
+  ],
+  "daily_return_correlations": {
+    "alpha158_lgbm_h1": {
+      "alpha158_lgbm_h1": 1.0,
+      "alpha158_lgbm_h5": 0.7704285460060334,
+      "alpha158_lgbm_h10": 0.7765348947951067,
+      "momentum_20": 0.22596666232655213,
+      "momentum_60": 0.3626563858202849
+    },
+    "alpha158_lgbm_h5": {
+      "alpha158_lgbm_h1": 0.7704285460060334,
+      "alpha158_lgbm_h5": 1.0,
+      "alpha158_lgbm_h10": 0.9579769881262757,
+      "momentum_20": 0.4134857509934576,
+      "momentum_60": 0.4888428721582737
+    },
+    "alpha158_lgbm_h10": {
+      "alpha158_lgbm_h1": 0.7765348947951067,
+      "alpha158_lgbm_h5": 0.9579769881262757,
+      "alpha158_lgbm_h10": 1.0,
+      "momentum_20": 0.3770048283297118,
+      "momentum_60": 0.4510796217560734
+    },
+    "momentum_20": {
+      "alpha158_lgbm_h1": 0.22596666232655213,
+      "alpha158_lgbm_h5": 0.4134857509934576,
+      "alpha158_lgbm_h10": 0.3770048283297118,
+      "momentum_20": 1.0,
+      "momentum_60": 0.8991087362370017
+    },
+    "momentum_60": {
+      "alpha158_lgbm_h1": 0.3626563858202849,
+      "alpha158_lgbm_h5": 0.4888428721582737,
+      "alpha158_lgbm_h10": 0.4510796217560734,
+      "momentum_20": 0.8991087362370017,
+      "momentum_60": 1.0
+    }
+  }
+}

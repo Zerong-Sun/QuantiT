@@ -41,6 +41,12 @@ a { color: var(--sky); }
 .global-error button { padding: 0 7px; background: transparent; border: 0; }
 .quote-error { margin: 12px 20px; padding: 10px 12px; border-radius: 8px; background: #fff3e5; color: #82531d; font-size: 12px; overflow-wrap: anywhere; }
 .quote-error p { margin: 10px 0 0; }
+.experiment-context { display: flex; flex-wrap: wrap; gap: 10px 24px; color: var(--ink-muted); font-size: 12px; margin: 14px 0; }
+.experiment-subtitle { display: block; color: var(--ink-muted); font-size: 11px; margin-top: 5px; }
+.experiment-notes { margin-top: 16px; font-size: 12px; color: var(--ink-muted); overflow-wrap: anywhere; }
+.card[data-card="strategy-experiments"] .hint,
+.card[data-card="strategy-experiments"] .experiment-context,
+.card[data-card="strategy-experiments"] .experiment-notes { margin-left: 18px; margin-right: 18px; }
 .overview-page { max-width: 1360px; margin: auto; padding: 36px 32px 24px; }
 .page-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 26px; }
 .page-heading h1 { margin-bottom: 10px; }

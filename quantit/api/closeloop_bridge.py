@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 import pandas as pd
 from datetime import datetime
 from typing import Any
@@ -204,6 +205,39 @@ def attach_closeloop_routes(app: FastAPI, broker: PaperBroker, worker: LoopWorke
             except (OSError, ValueError):
                 pass
         return status
+
+    @app.get("/api/v1/closeloop/experiments")
+    def closeloop_experiments() -> dict[str, Any]:
+        """Read-only completed research artifact; never loads model binaries."""
+        path = Path(os.environ.get("QUANTIT_EXPERIMENT_REPORT",
+                    str(Path.home() / ".quantit/closeloop/experiments/latest.json"))).expanduser()
+        if not path.is_file():
+            return {"strategies": [], "automatic_trading": False}
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(report, dict) or not isinstance(report.get("strategies"), list):
+                raise ValueError("Invalid experiment report")
+            for row in report["strategies"]:
+                if (not isinstance(row, dict)
+                    or not all(isinstance(row.get(key), dict) for key in ("portfolio", "test", "ic", "double_cost_test"))
+                    or not all(isinstance(row.get(key), list) for key in ("folds", "gate_reasons", "promotion_blockers"))):
+                    raise ValueError("Incomplete strategy experiment")
+            keys = ("version", "data_asof", "validation_start", "test_start", "test_last_signal",
+                    "instruments", "completed_at", "benchmark", "limitations", "versions")
+            public = {key: report.get(key) for key in keys}
+            # The API itself enforces display-only mode, independent of artifact flags.
+            public["automatic_trading"] = False
+            public["strategies"] = [
+                {**{k: row.get(k) for k in (
+                    "id", "name", "horizon", "model", "portfolio", "test", "ic", "folds",
+                    "double_cost_test", "statistical_gate_passed", "gate_reasons", "promotion_blockers",
+                    "latest_signal_date", "latest_ranking")},
+                 "automatic_trading": False, "promotion_eligible": False, "mode": "shadow"}
+                for row in report["strategies"] if isinstance(row, dict)
+            ]
+            return public
+        except (OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail="策略实验报告不可读，请检查训练输出。") from exc
 
     @app.get("/api/v1/closeloop/status")
     def closeloop_status() -> dict[str, Any]:

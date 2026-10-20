@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { ResizableCard } from "./ResizableCard";
+import { StrategyExperiments } from "./StrategyExperiments";
 import { instrumentLabel } from "../markets/display";
 import type { CloseloopLibraryRow, CloseloopStatus, CloseloopTraceRow, Position } from "../types";
 
@@ -64,7 +65,7 @@ export function CloseloopPage() {
   return (
     <>
       <div className="research-header">
-        <div className="page-heading"><div><p className="eyebrow">FACTOR RESEARCH</p><h1>因子研究</h1><p>独立研究账户 · 通过验证门槛后才生成模拟交易目标。</p></div>
+        <div className="page-heading"><div><p className="eyebrow">STRATEGY RESEARCH</p><h1>因子与模型研究</h1><p>Alpha101 因子账户与模型策略实验分别评估；模型策略当前仅作独立回测。</p></div>
           <div className="research-actions"><span className={`status-pill ${status?.running ? "success" : "neutral"}`}>{status ? status.running ? "研究运行中" : "研究已暂停" : "连接中"}</span>
             <button disabled={busy || !status} onClick={() => run(() => api.closeloopStep())}>{busy ? "处理中…" : "评估下一个因子"}</button>
             <button disabled={busy || !status} onClick={() => run(() => status?.running ? api.closeloopStop() : api.closeloopStart())}>{status?.running ? "暂停研究" : "启动研究"}</button></div>
@@ -79,6 +80,7 @@ export function CloseloopPage() {
       </div>
       <main className="dashboard research-dashboard">
         {error ? <div className="banner error">{error}</div> : null}
+        <StrategyExperiments />
         <ResizableCard id="cl-library" title="因子库" className="wide" minWidth={360} minHeight={220}>
           <table>
             <thead>

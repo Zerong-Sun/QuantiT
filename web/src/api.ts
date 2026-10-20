@@ -15,6 +15,7 @@ import type {
   CloseloopStatus,
   CloseloopLibraryRow,
   CloseloopTraceRow,
+  StrategyExperimentReport,
 } from "./types";
 import { assertJsonResponse } from "./jsonResponse";
 
@@ -125,6 +126,7 @@ export const api = {
     return res.json() as Promise<Runner>;
   },
   closeloopStatus: () => getJson<CloseloopStatus>("/api/v1/closeloop/status"),
+  strategyExperiments: () => getJson<StrategyExperimentReport>("/api/v1/closeloop/experiments"),
   closeloopLibrary: () => getJson<CloseloopLibraryRow[]>("/api/v1/closeloop/library"),
   closeloopTrace: (limit = 50) =>
     getJson<CloseloopTraceRow[]>(`/api/v1/closeloop/trace?limit=${encodeURIComponent(String(limit))}`),
