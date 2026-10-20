@@ -84,7 +84,7 @@ def create_app(
     owned = broker is None
     registry = registry or get_registry()
     if broker is None:
-        broker = PaperBroker(create_session(), registry=registry)
+        broker = PaperBroker(create_session(), registry=registry, max_quote_age_days=7)
     broker.ensure_accounts()
     notebook = notebook or NoteBook(session_on(broker.session.get_bind()), now=broker.now)
     if runner is None:
@@ -227,7 +227,9 @@ def create_app(
         adapter = _adapter(market)
         canonical = adapter.normalize_symbol(symbol)
         end_ts = pd.Timestamp.utcnow()
-        start_ts = end_ts - pd.Timedelta(days=365)
+        # A 252-session momentum needs more than 365 calendar days once
+        # exchange holidays and skipped bars are included.
+        start_ts = end_ts - pd.Timedelta(days=600)
         try:
             df = adapter.fetch_bars(canonical, "1d", start_ts, end_ts)
         except ValueError as exc:
@@ -299,7 +301,10 @@ def create_app(
         force: bool = False,
     ) -> RunnerOut:
         markets = (market,) if market else None
-        runner.tick(markets=markets, force=force)
+        try:
+            runner.tick(markets=markets, force=force)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         return _runner_out()
 
     @app.get("/api/v1/accounts", response_model=List[AccountOut])

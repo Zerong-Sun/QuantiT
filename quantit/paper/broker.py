@@ -8,6 +8,7 @@ research ``next_open``. See ``quantit.research.fills``.
 from __future__ import annotations
 
 import threading
+import math
 from collections.abc import Callable
 from datetime import datetime
 from typing import TypeVar
@@ -32,10 +33,12 @@ class PaperBroker:
         session: Session,
         registry: MarketRegistry | None = None,
         now: Callable[[], datetime] | None = None,
+        max_quote_age_days: int | None = None,
     ) -> None:
         self.session = session
         self.registry = registry or get_registry()
         self._now = now or datetime.utcnow
+        self.max_quote_age_days = max_quote_age_days
         # Session is shared by the API thread pool, paper runner, and closeloop
         # worker. SQLAlchemy sessions are not thread-safe; serialize all access.
         self._lock = threading.RLock()
@@ -196,8 +199,12 @@ class PaperBroker:
                 except (ValueError, KeyError) as exc:
                     quote_err = f"no quote: {exc}"
                 else:
-                    if quote.last <= 0:
+                    if not math.isfinite(quote.last) or quote.last <= 0:
                         quote_err = "no quote: last price is not positive"
+                    elif self.max_quote_age_days is not None:
+                        age = (ts.date() - quote.timestamp.date()).days
+                        if age < 0 or age > self.max_quote_age_days:
+                            quote_err = f"stale or future quote: {quote.timestamp.date()}"
 
         def _commit() -> Order:
             account = self.session.query(Account).filter_by(market_id=market_id).one_or_none()

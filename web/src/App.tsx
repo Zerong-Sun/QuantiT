@@ -343,13 +343,27 @@ export function App() {
           {runner.actions[0] ? (
             <span>{runner.actions[0].side} {runner.actions[0].quantity} {instrumentLabel(runner.actions[0].market_id, runner.actions[0].symbol, runner.actions[0].name)} ({runner.actions[0].status})</span>
           ) : null}
-          <button type="button" onClick={() => api.runnerTick().then(setRunner).then(() => loadBlotter())}>Run now</button>
+          <button type="button" onClick={() => api.runnerTick().then(setRunner).then(() => loadBlotter()).catch((e) => setError(String(e)))}>Run now</button>
           {runner.running ? (
-            <button type="button" onClick={() => api.runnerStop().then(setRunner)}>Pause</button>
+            <button type="button" onClick={() => api.runnerStop().then(setRunner).catch((e) => setError(String(e)))}>Pause</button>
           ) : (
-            <button type="button" onClick={() => api.runnerStart().then(setRunner)}>Start</button>
+            <button type="button" onClick={() => api.runnerStart().then(setRunner).catch((e) => setError(String(e)))}>Start</button>
           )}
           {runner.last_error ? <span className="banner error">{runner.last_error.split("\n")[0]}</span> : null}
+        </div>
+      ) : null}
+
+      {page === "desk" && runner ? (
+        <div className="runner-bar" aria-label="Independent strategy status">
+          {markets.filter((m) => m.id !== "cl").map((m) => {
+            const state = runner.books?.[m.id];
+            const recovery = runner.recovery?.[m.id];
+            return <span key={m.id} title={state?.error || recovery?.detail || state?.last_tick}>
+              {m.label || m.id}: {state?.state || "waiting"}
+              {!runner.auto_books?.includes(m.id) ? " · manual" : " · auto"}
+              {recovery ? ` · replay ${recovery.day} ${recovery.status}` : ""}
+            </span>;
+          })}
         </div>
       ) : null}
 

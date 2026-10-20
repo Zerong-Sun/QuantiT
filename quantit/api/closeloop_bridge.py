@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import pandas as pd
 from datetime import datetime
 from typing import Any
 
@@ -19,6 +20,7 @@ from closeloop.loop.worker import LoopWorker, dump_exists, parquet_exists
 from closeloop.model.dataset import build_dataset
 from closeloop.model.train import train_predict_ic
 from quantit.paper.broker import PaperBroker
+from quantit.paper.models import RunnerMark
 
 
 def make_worker() -> LoopWorker:
@@ -34,14 +36,32 @@ def bind_broker(worker: LoopWorker, broker: PaperBroker) -> None:
     booked_on: dict[str, object] = {"day": None}
 
     def on_target(_status: Any, target: TargetBook) -> None:
+        if not _fresh_dump(worker, broker):
+            return
         day = broker.now().date()
-        if booked_on["day"] == day:
+        key = ("cl", "CLOSELOOP", day.isoformat())
+        persisted = broker._guarded(lambda: broker.session.get(RunnerMark, key) is not None)
+        if booked_on["day"] == day or persisted:
             return
         fills = apply_target_book(broker, target, rationale=target.rationale, gate_passed=True)
         if any(item.get("status") == "filled" for item in fills):
             booked_on["day"] = day
+            def save():
+                broker.session.merge(RunnerMark(market_id="cl", symbol="CLOSELOOP", day=day.isoformat()))
+                broker.session.commit()
+            broker._guarded(save, retry=False)
 
     worker.on_target = on_target
+
+
+def _fresh_dump(worker: LoopWorker, broker: PaperBroker) -> bool:
+    """A historical panel remains research data, never a current trade feed."""
+    try:
+        dates = pd.read_parquet(worker.data_dir / "panel.parquet", columns=[]).index
+        age = (pd.Timestamp(broker.now()).normalize() - pd.Timestamp(dates.max()).normalize()).days
+        return 0 <= age <= 7
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 def _unit_cost(adapter, quote) -> float:
@@ -136,6 +156,8 @@ def apply_target_book(
             quote = quote_of(symbol)
         except ValueError:
             continue
+        if quote.volume <= 0 or (broker.now().date() - quote.timestamp.date()).days > 7:
+            continue
         unit = _unit_cost(adapter, quote)
         if unit <= 0:
             continue
@@ -171,6 +193,16 @@ def attach_closeloop_routes(app: FastAPI, broker: PaperBroker, worker: LoopWorke
         status["cl_equity"] = equity
         status["cl_currency"] = "CNY"
         status["has_dump"] = parquet_exists(worker.data_dir)
+        status["data_fresh"] = _fresh_dump(worker, broker)
+        status["can_trade"] = bool(status.get("can_trade") and status["data_fresh"])
+        metadata = worker.data_dir / "refresh.json"
+        if metadata.exists():
+            try:
+                coverage = json.loads(metadata.read_text())
+                status["data_asof"] = coverage.get("end")
+                status["latest_coverage"] = coverage.get("latest_coverage")
+            except (OSError, ValueError):
+                pass
         return status
 
     @app.get("/api/v1/closeloop/status")
@@ -191,7 +223,7 @@ def attach_closeloop_routes(app: FastAPI, broker: PaperBroker, worker: LoopWorke
     def closeloop_step() -> dict[str, Any]:
         status, target = worker.step()
         fills: list[dict[str, Any]] = []
-        if target is not None and status.can_trade and status.passed:
+        if target is not None and status.can_trade and status.passed and _fresh_dump(worker, broker):
             fills = apply_target_book(broker, target, gate_passed=True)
         payload = _with_book(status.to_dict())
         payload["fills"] = fills

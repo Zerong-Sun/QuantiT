@@ -74,7 +74,7 @@ Each `validate` / `run` writes `artifacts/library/{id}.json` (IC, IR, spread, tu
 
 ## Training
 
-`closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
+`closeloop train` builds a date×asset table of prepared Alpha101 columns plus `t+horizon` return, fits on the first date fraction, and reports OOS predicted IC. The chronological holdout purges `horizon` sessions before the test set and never splits one date across train/test. This is a single holdout, not rolling walk-forward or a cost-adjusted portfolio return. Backend: LightGBM if installed, else sklearn linear, else numpy least squares.
 
 Optional **Alpha158 research feature matrix** — this is qlib's `Alpha158` handler wired to the local CSI300 dump, **not** a complete or promotable Alpha158 trading system. It does not replace Alpha101. Needs `pip install -e '.[closeloop]'` (in `.venv311`, below) and `~/.quantit/closeloop/qlib_cn` (calendars / instruments / `panel.parquet` / qlib bins). If pyqlib is missing the builder raises `ImportError`; it does **not** fall back to Alpha101 feature columns. The only shared pieces are the Closeloop `t+horizon` close-return **label** (not qlib `LABEL0`) and the existing `train_predict_ic` helper.
 
@@ -114,7 +114,21 @@ train_predict_ic(ds)
 Design hooks in `closeloop/model/alpha158.py` (documented, **not applied** in v1):
 
 - Feature available day **day+1** (PIT / no same-day peek): `FEATURE_AVAILABLE_LAG_DAYS` / `apply_feature_available_lag`. Builder calls the hook with `lag=0`.
-- Train/test **embargo**: `TRAIN_EMBARGO_DAYS` / `apply_train_embargo`. Not wired into `train_predict_ic` (contiguous date-fraction split, no gap).
+- Additional fixed **embargo**: `TRAIN_EMBARGO_DAYS` / `apply_train_embargo` remains a separate hook. The shared trainer now purges the label horizon; it does not apply this additional fixed five-session gap.
+
+### Refresh stale research data
+
+`python -m closeloop.data.refresh --source OLD_DUMP --destination NEW_DUMP --end YYYY-MM-DD`
+downloads the existing fixed research universe to a new versioned directory.
+This does not refresh historical CSI300 membership or correct survivorship bias.
+`refresh.json` records every symbol's coverage. At least 95% must reach the end
+date before a staged panel is written, and all names must retain history.
+Missing latest rows remain missing. Keep the old dump and select the new one
+with `CLOSELOOP_DATA_DIR`; use a new `CLOSELOOP_ARTIFACTS` directory to avoid
+mixing old factor evaluations with the new dataset.
+
+The API bridge prevents trading from dumps older than seven calendar days,
+and the broker rejects stale/future prices. Zero-volume CL targets are not bought.
 
 This path does **not** change gate thresholds or auto-place US/HK/CN orders. Paper results stay on book `cl`; trading still requires a gate pass on `cl` only.
 

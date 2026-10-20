@@ -7,7 +7,7 @@ A research-oriented quantitative trading platform for US equities, Hong Kong lon
 - **Data**: Yahoo Finance OHLCV with Parquet caching (gap-aware); HK `.HK` names and macro series; A-share / ETF bars via local CSV (`materials/etf_history_clean.csv`) plus AkShare
 - **Markets**: Pluggable `MarketAdapter` registry (`us`, `hk`, `cn`) — add a venue without changing API routes
 - **Factors**: Technical indicators (SMA, EMA, RSI, MACD, Bollinger, ATR, momentum, volatility)
-- **Strategies**: Time-series momentum with volatility targeting (US research default); MA/RSI `us_book` as a paper baseline; HK monthly theme rotation; CN industry ETF monthly rotation
+- **Strategies**: Time-series momentum with volatility targeting (US research default); MA/RSI `us_book` as a paper baseline; HK theme rotation; CN industry ETF rotation. Current paper implementations evaluate daily with turnover bands, not monthly.
 - **Research**: Walk-forward grid search (`quantit research`); report gate vs stricter promote gate; only the paper quality universe can write `~/.quantit/research/active_params.yaml`. See `research/BASELINE.md`.
 - **Backtest**: Bar-by-bar simulation; single-name signals fill on the next bar's open by default
 - **Paper terminal**: Delayed quotes (polling), market orders, auto-runner for catalog strategies, **one cash account per strategy** sharing US/HK/CN venue adapters (US quality TSMOM + US MA/RSI, HK quality TSMOM + Hang Seng TECH rotation, CN quality TSMOM + industry ETFs, plus an isolated **CL ¥1m** CSI300 research book). A-share T+1 and board lots. Top-bar **Research** (`/research`) runs Closeloop (Alpha101 + gates) without mixing into any US/HK/CN paper book.
@@ -24,10 +24,10 @@ pip install -e ".[dev]"
 # Run MA crossover backtest
 python examples/ma_crossover.py
 
-# Hang Seng TECH theme rotation (monthly, HK)
+# Hang Seng TECH theme rotation (HK)
 python examples/hk_tech_rotation.py
 
-# Onshore industry ETF rotation (monthly, A-share)
+# Onshore industry ETF rotation (A-share)
 python examples/cn_etf_rotation.py
 
 # CLI backtest (MA crossover)
@@ -71,7 +71,39 @@ npm run dev
 
 Then use http://localhost:5173 (Vite proxies `/api` to port 8000).
 
-### News (Finnhub) and policy briefs
+### Recover an interrupted paper desk
+
+`python -m quantit.paper.recovery` reconstructs **separate strategy accounts** on
+a database copy, from each book's last recorded trade through the requested end.
+It freezes daily bars, uses venue close times, caps all signals and fills to each
+historical date, and records no-trade days. Rows are historical reconstructions,
+not orders that actually ran while the server was down. Existing derivatives need
+historical prices; missing prices block that book without blocking others.
+Unfinished days require review before resuming; completed days are idempotent.
+Current parameters and retrospectively adjusted public data are used, so this is
+not a point-in-time backtest or a basis for parameter promotion.
+
+```bash
+.venv/bin/python -m quantit.paper.recovery \
+  --source ~/.quantit/paper.db --output ~/.quantit/recovery/run/paper.db \
+  --data-dir ~/.quantit/recovery/run/data \
+  --start 2026-09-18 --end 2026-10-20 --download
+```
+
+Review `manifest.json`, `protocol.json`, `result.json` and the `recovery_days`
+table before installing the recovered DB with the backend stopped. Never copy
+over a live SQLite database. The UI shows recovery progress and blocked books.
+
+On macOS, after stopping an old manually started server, install the resident
+backend with `.venv/bin/python scripts/install_service.py`. It uses launchd login
+startup, restarts crashed children, and restarts after three failed HTTP health
+checks. Logs rotate under `~/.quantit/runners/`. A sleeping or powered-off machine
+cannot keep fetching data; run recovery after a long outage.
+
+See [the 2026-10-20 audit](research/RECOVERY_2026-10-20.md) for strategy inventory,
+repair checklist, reconstruction results and training recommendations.
+
+### News setup
 
 1. Register a free key at [finnhub.io/register](https://finnhub.io/register)
 2. Copy `.env.example` to `.env` and set `FINNHUB_API_KEY` (`.env` is gitignored). You can also `export FINNHUB_API_KEY=...`.

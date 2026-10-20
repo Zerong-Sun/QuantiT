@@ -160,6 +160,9 @@ export interface RunnerAction {
 }
 
 export interface Runner {
+  books?: Record<string, { state: string; last_tick: string; error?: string | null; orders?: number }>;
+  auto_books?: string[];
+  recovery?: Record<string, { day: string; status: string; detail: string; equity?: number | null }>;
   running: boolean;
   interval_sec: number;
   last_tick: string | null;
@@ -191,16 +194,18 @@ export interface PortfolioPosition {
 }
 
 export interface PortfolioBook {
+  valuation_complete?: boolean;
+  unpriced_symbols?: string[];
   market_id: MarketId;
   currency: string;
   cash: number;
   invested: number;
   equity: number;
   initial_cash: number;
-  total_pnl: number;
-  day_pnl: number;
-  week_pnl: number;
-  month_pnl: number;
+  total_pnl: number | null;
+  day_pnl: number | null;
+  week_pnl: number | null;
+  month_pnl: number | null;
 }
 
 export interface PortfolioOverview {
@@ -210,6 +215,9 @@ export interface PortfolioOverview {
 }
 
 export interface CloseloopStatus {
+  data_fresh?: boolean;
+  data_asof?: string;
+  latest_coverage?: number;
   running: boolean;
   source: string;
   last_alpha: string | null;

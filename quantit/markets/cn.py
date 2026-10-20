@@ -234,6 +234,37 @@ class AkShareCNProvider(DataProvider):
         return self._rename_ohlcv(raw)
 
 
+class TencentCNProvider(DataProvider):
+    """Adjusted daily fallback when Eastmoney and Yahoo have gaps."""
+
+    def fetch(self, symbol, start, end, interval="1d"):
+        if interval != "1d":
+            raise ValueError("Tencent fallback supports daily bars only")
+        import akshare as ak
+
+        canonical = canonical_cn_symbol(symbol)
+        code, suffix = canonical.split(".")
+        try:
+            frame = ak.stock_zh_a_hist_tx(
+                symbol=("sh" if suffix == "SS" else "sz") + code,
+                start_date=pd.Timestamp(start).strftime("%Y%m%d"),
+                end_date=pd.Timestamp(end).strftime("%Y%m%d"),
+                adjust="qfq", timeout=15,
+            )
+            out = frame.set_index(pd.to_datetime(frame["date"]))[
+                ["open", "high", "low", "close", "volume"]
+            ].astype(float).sort_index()
+            out = out.loc[
+                pd.Timestamp(start).tz_localize(None).normalize():
+                pd.Timestamp(end).tz_localize(None).normalize()
+            ]
+            if out.empty:
+                raise ValueError("empty frame")
+            return out
+        except Exception as exc:
+            raise ValueError(f"Tencent daily data unavailable for {symbol}: {exc}") from exc
+
+
 class CNAdapter(MarketAdapter):
     market_id = "cn"
     profile = CN_PROFILE
@@ -248,7 +279,9 @@ class CNAdapter(MarketAdapter):
         # CSV covers onshore ETFs; single-name quality stocks are not in that
         # file, and AkShare is optional. Yahoo is the live fallback so the
         # paper book can mark and trade 000333.SZ / 600519.SS without akshare.
-        return FailoverProvider(CompositeCNProvider(), YahooFinanceProvider())
+        return FailoverProvider(
+            CompositeCNProvider(), FailoverProvider(YahooFinanceProvider(), TencentCNProvider())
+        )
 
     def normalize_symbol(self, raw: str) -> str:
         return canonical_cn_symbol(raw)

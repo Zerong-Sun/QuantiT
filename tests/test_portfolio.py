@@ -199,7 +199,8 @@ class TestPortfolioRoute:
         data = resp.json()
         pos = data["positions"][0]
         assert pos["last"] == pytest.approx(100.0)
-        assert pos["unrealized"] == pytest.approx(0.0)
+        assert pos["unrealized"] is None
+        assert pos["mark_source"] == "cost_estimate"
         assert pos["market_value"] == pytest.approx(800.0)
         us = next(b for b in data["books"] if b["market_id"] == "us")
         assert us["invested"] == pytest.approx(800.0)

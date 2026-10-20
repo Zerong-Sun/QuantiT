@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from typing import Protocol
 
 import pandas as pd
@@ -70,7 +71,15 @@ class MarketAdapter(ABC):
         if interval not in self.supported_intervals:
             raise ValueError(f"Unsupported interval {interval!r} for market {self.market_id}")
         canonical = self.normalize_symbol(symbol)
-        return self.provider.fetch(canonical, start, end, interval)
+        bars = self.provider.fetch(canonical, start, end, interval)
+        if interval == "1d" and bars is not None and not bars.empty:
+            # Daily strategies must not consume an unfinished session's close.
+            local = datetime.now(ZoneInfo(self.timezone))
+            close_hour = 15 if self.market_id in {"cn", "cl"} else 16
+            cutoff = local.date() if local.time() >= time(close_hour, 5) else local.date() - timedelta(days=1)
+            dates = pd.DatetimeIndex(bars.index).tz_localize(None).normalize()
+            bars = bars.loc[dates <= pd.Timestamp(cutoff)]
+        return bars
 
     def fetch_quote(self, symbol: str) -> Quote:
         canonical = self.normalize_symbol(symbol)

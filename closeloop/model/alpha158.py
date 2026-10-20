@@ -25,7 +25,8 @@ Design hooks (not applied in v1)
   ``build_alpha158_dataset`` calls the hook with ``lag=0``.
 * Train/test **embargo**:
   ``TRAIN_EMBARGO_DAYS`` / ``apply_train_embargo``.
-  Not called from the train CLI; ``train_predict_ic`` is unchanged.
+  Additional fixed embargo is not called from the train CLI; the shared trainer
+  separately purges the forward-label horizon.
 
 Usage
 -----
@@ -57,7 +58,7 @@ _INST_ALIASES = {"instrument", "instruments", "asset", "symbol"}
 FEATURE_AVAILABLE_LAG_DAYS = 1
 
 # Intended gap (trading days) between last train date and first test date.
-# v1 does not apply this; train_predict_ic still uses a contiguous date-fraction split.
+# The trainer purges the label horizon; this additional five-day hook is separate.
 TRAIN_EMBARGO_DAYS = 5
 
 
@@ -80,13 +81,12 @@ def apply_train_embargo(dataset: pd.DataFrame, *, embargo_days: int = TRAIN_EMBA
     """Train/test embargo hook. Not wired into ``train_predict_ic``.
 
     TODO(embargo): drop ``embargo_days`` between the last train date and the
-    first test date so labels near the cut cannot leak. v1 leaves the shared
-    trainer unchanged (contiguous split, no gap).
+    first test date in addition to the shared trainer's label-horizon purge.
     """
     if embargo_days <= 0:
         return dataset
     raise NotImplementedError(
-        "train embargo is a design hook only; train_predict_ic has no gap"
+        "additional fixed train embargo is a design hook; trainer purges the label horizon"
     )
 
 
@@ -218,6 +218,8 @@ def build_alpha158_dataset(
         Closeloop field×instrument panel used to align names/dates and to
         build the label. Loaded from the dump when omitted.
     """
+    if not isinstance(horizon, int) or horizon < 1:
+        raise ValueError("horizon must be a positive integer")
     dest = Path(data_dir) if data_dir is not None else default_data_dir()
     if handler is None:
         try:
@@ -243,4 +245,5 @@ def build_alpha158_dataset(
     out = features.join(label, how="left")
     if "label" not in out.columns:
         out["label"] = label.reindex(out.index)
+    out.attrs["label_horizon"] = horizon
     return out

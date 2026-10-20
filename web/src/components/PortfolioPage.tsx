@@ -127,6 +127,11 @@ export function PortfolioPage() {
           <p className="empty">No account.</p>
         )}
         {error ? <p className="banner error">{error}</p> : null}
+        {book?.valuation_complete === false ? (
+          <p className="banner error">
+            缺少有效行情：{book.unpriced_symbols?.join(", ")}。净值含成本估值，盈亏暂不可用。
+          </p>
+        ) : null}
         {data?.asof ? <p className="hint asof">as of {data.asof.replace("T", " ").slice(0, 19)} · delayed marks</p> : null}
       </ResizableCard>
 

@@ -30,18 +30,22 @@ def _predict_numpy(train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray)
 
 
 def train_predict_ic(dataset: pd.DataFrame, train_frac: float = 0.7) -> dict:
-    frame = dataset.dropna()
+    """Chronological holdout with horizon-sized label purge (not walk-forward)."""
+    if not 0 < train_frac < 1:
+        raise ValueError("train_frac must be between zero and one")
+    horizon = int(dataset.attrs.get("label_horizon", 1))
+    if horizon < 1:
+        raise ValueError("label_horizon must be positive")
+    frame = dataset.replace([np.inf, -np.inf], np.nan).dropna().sort_index()
     if frame.empty:
-        return {"pred_ic": float("nan"), "n_train": 0, "n_test": 0, "backend": "none", "features": []}
+        return {"pred_ic": None, "n_train": 0, "n_test": 0, "backend": "none", "features": []}
     date_vals = pd.DatetimeIndex(frame.index.get_level_values("date"))
     uniq = date_vals.unique().sort_values()
-    cut_i = max(1, min(len(uniq) - 2, int(len(uniq) * train_frac)))
-    cut = uniq[cut_i]
-    train = frame[date_vals <= cut]
-    test = frame[date_vals > cut]
-    if test.empty or train.empty:
-        split = max(1, len(frame) * 3 // 4)
-        train, test = frame.iloc[:split], frame.iloc[split:]
+    cut_i = int(len(uniq) * train_frac)
+    if cut_i <= horizon or cut_i >= len(uniq):
+        raise ValueError("Not enough distinct dates for a purged chronological split")
+    train = frame[date_vals < uniq[cut_i - horizon]]
+    test = frame[date_vals >= uniq[cut_i]]
     feature_cols = [c for c in frame.columns if c != "label"]
     pred, backend = _predict_numpy(
         train[feature_cols].to_numpy(),
@@ -50,7 +54,7 @@ def train_predict_ic(dataset: pd.DataFrame, train_frac: float = 0.7) -> dict:
     )
     y = test["label"].to_numpy()
     if len(y) < 3 or float(np.std(pred)) == 0.0 or float(np.std(y)) == 0.0:
-        ic = float("nan")
+        ic = None
     else:
         ic = float(np.corrcoef(pred, y)[0, 1])
     return {
@@ -59,4 +63,8 @@ def train_predict_ic(dataset: pd.DataFrame, train_frac: float = 0.7) -> dict:
         "n_test": int(len(test)),
         "backend": backend,
         "features": feature_cols,
+        "split": "chronological_holdout",
+        "purge_sessions": horizon,
+        "train_end": str(train.index.get_level_values("date").max().date()),
+        "test_start": str(test.index.get_level_values("date").min().date()),
     }

@@ -13,6 +13,26 @@ class Base(DeclarativeBase):
     pass
 
 
+class RunnerMark(Base):
+    """Completed strategy evaluations survive process restarts."""
+
+    __tablename__ = "runner_marks"
+    market_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+
+
+class RecoveryDay(Base):
+    """Audit trail for historical paper reconstruction, including no-trade days."""
+
+    __tablename__ = "recovery_days"
+    market_id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    day: Mapped[str] = mapped_column(String(10), primary_key=True)
+    status: Mapped[str] = mapped_column(String(16))
+    detail: Mapped[str] = mapped_column(Text, default="")
+    equity: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+
 class Account(Base):
     __tablename__ = "accounts"
 

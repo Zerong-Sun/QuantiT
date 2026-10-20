@@ -235,6 +235,10 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
             pool.shutdown(wait=False)
     for market_id, symbol, frame in loaded:
         if frame is not None:
+            frame = frame.loc[frame.index <= pd.Timestamp(now)]
+            if frame.empty or (pd.Timestamp(now).normalize() - frame.index.max()).days > 7:
+                frame = None
+        if frame is not None:
             frames[(market_id, symbol)] = frame
         last, prev = _last_prev(frame)
         if last is not None:
@@ -249,6 +253,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
         market_id = account.market_id
         qty_now = _qty_map(positions, market_id)
         now_prices = {s: last_px[(market_id, s)] for s in qty_now if (market_id, s) in last_px}
+        unpriced = sorted(set(qty_now) - set(now_prices))
         for pos in positions:
             if pos.market_id != market_id or pos.symbol in now_prices:
                 continue
@@ -257,7 +262,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                 now_prices[pos.symbol] = cost_px
         invested = _marked(market_id, qty_now, now_prices)
         equity = float(account.cash) + invested
-        book_pnls: dict[str, float] = {}
+        book_pnls: dict[str, float | None] = {}
         for name, when in starts.items():
             cash_then, qty_then = _replay(account, qty_now, trades, when)
             then_prices: dict[str, float] = {}
@@ -271,7 +276,9 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                     if close is not None:
                         then_prices[symbol] = close
             equity_then = cash_then + _marked(market_id, qty_then, then_prices)
-            book_pnls[name] = equity - equity_then
+            book_pnls[name] = (
+                equity - equity_then if not unpriced and set(qty_then) <= set(then_prices) else None
+            )
         books.append(
             {
                 "market_id": market_id,
@@ -280,7 +287,9 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                 "invested": invested,
                 "equity": equity,
                 "initial_cash": float(account.initial_cash),
-                "total_pnl": equity - float(account.initial_cash),
+                "total_pnl": equity - float(account.initial_cash) if not unpriced else None,
+                "valuation_complete": not unpriced,
+                "unpriced_symbols": unpriced,
                 "day_pnl": book_pnls["day"],
                 "week_pnl": book_pnls["week"],
                 "month_pnl": book_pnls["month"],
@@ -291,6 +300,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
             if pos.market_id != market_id:
                 continue
             last = last_px.get((market_id, pos.symbol))
+            quoted = last is not None
             prev = prev_px.get((market_id, pos.symbol))
             if last is None:
                 last = _finite(float(pos.avg_cost)) or None
@@ -298,7 +308,7 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
             cost = _notional(market_id, pos.symbol, pos.quantity, pos.avg_cost)
             marked = last is not None
             value = _notional(market_id, pos.symbol, pos.quantity, last) if marked else 0.0
-            unrealized = (value - cost) if marked else None
+            unrealized = (value - cost) if quoted else None
             day_move = None
             if marked and prev is not None:
                 day_move = _notional(market_id, pos.symbol, pos.quantity, last - prev)
@@ -317,7 +327,8 @@ def build_overview(broker: PaperBroker) -> dict[str, Any]:
                     "market_value": value,
                     "cost_value": cost,
                     "unrealized": unrealized,
-                    "unrealized_pct": (unrealized / cost) if marked and cost else None,
+                    "unrealized_pct": (unrealized / cost) if quoted and cost else None,
+                    "mark_source": "quote" if quoted else "cost_estimate",
                     "day_pnl": day_move,
                     "weight": (value / invested) if invested else 0.0,
                 }

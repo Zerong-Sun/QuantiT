@@ -15,6 +15,8 @@ def build_dataset(
     alpha_ids: tuple[str, ...],
     horizon: int = 1,
 ) -> pd.DataFrame:
+    if not isinstance(horizon, int) or horizon < 1:
+        raise ValueError("horizon must be a positive integer")
     close = field_frame(panel, "close")
     label = factor_stack(close.shift(-horizon) / close - 1.0)
     label.name = "label"
@@ -25,4 +27,6 @@ def build_dataset(
         col = factor_stack(prepared)
         col.name = str(aid).zfill(3)
         pieces.append(col)
-    return pd.concat(pieces, axis=1)
+    dataset = pd.concat(pieces, axis=1)
+    dataset.attrs["label_horizon"] = horizon
+    return dataset

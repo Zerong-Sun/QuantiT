@@ -193,6 +193,9 @@ class RunnerOut(BaseModel):
     allowed: dict
     watchlists: dict
     actions: List[RunnerActionOut]
+    books: dict = Field(default_factory=dict)
+    auto_books: List[str] = Field(default_factory=list)
+    recovery: dict = Field(default_factory=dict)
 
 
 class PortfolioPositionOut(BaseModel):
@@ -212,6 +215,7 @@ class PortfolioPositionOut(BaseModel):
     unrealized_pct: Optional[float] = None
     day_pnl: Optional[float] = None
     weight: float = 0.0
+    mark_source: str = "quote"
 
 
 class PortfolioBookOut(BaseModel):
@@ -221,10 +225,12 @@ class PortfolioBookOut(BaseModel):
     invested: float
     equity: float
     initial_cash: float
-    total_pnl: float
-    day_pnl: float
-    week_pnl: float
-    month_pnl: float
+    total_pnl: Optional[float]
+    day_pnl: Optional[float]
+    week_pnl: Optional[float]
+    month_pnl: Optional[float]
+    valuation_complete: bool = True
+    unpriced_symbols: List[str] = Field(default_factory=list)
 
 
 class PortfolioOut(BaseModel):

@@ -66,6 +66,9 @@ export function CloseloopPage() {
       <div className="runner-bar">
         <span className={status?.running ? "live" : "off"}>{status?.running ? "LIVE" : "PAUSED"}</span>
         <span>source {status?.source ?? "—"}</span>
+        {status?.data_asof ? (
+          <span>data {status.data_asof} · {fmt((status.latest_coverage ?? 0) * 100, 1)}% latest coverage</span>
+        ) : null}
         <span>alpha {status?.last_alpha ?? "—"}</span>
         <span>IC {fmt(status?.ic_mean, 4)} · IR {fmt(status?.ic_ir, 3)}</span>
         <span>CL {fmt(status?.cl_cash, 0)} {status?.cl_currency ?? "CNY"}{status?.cl_equity != null ? ` · eq ${fmt(status.cl_equity, 0)}` : ""}</span>
@@ -74,7 +77,9 @@ export function CloseloopPage() {
             ? "dump quotes · may book cl"
             : status?.has_dump === false
               ? "no dump · fixture research, no cl orders"
-              : "fixture · no cl orders"}
+              : status?.data_fresh === false
+                ? "stale research data · no cl orders"
+                : "research only · no cl orders"}
         </span>
         <span>{status?.last_tick ? `tick ${status.last_tick.replace("T", " ").slice(0, 19)}` : "waiting"}</span>
         <button type="button" disabled={busy} onClick={() => run(() => api.closeloopStep())}>

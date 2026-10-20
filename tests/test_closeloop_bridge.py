@@ -58,7 +58,7 @@ def _paper_registry() -> MarketRegistry:
 def _dump(tmp_path, n: int = 40) -> tuple[MarketRegistry, object]:
     csv_dir = tmp_path / "csv"
     csv_dir.mkdir()
-    dates = pd.bdate_range("2024-01-02", periods=n)
+    dates = pd.bdate_range(end="2024-06-07", periods=n)
     for j, inst in enumerate(("SH600000", "SZ000001")):
         close = 10.0 + j + 0.02 * pd.RangeIndex(n)
         pd.DataFrame(
@@ -203,6 +203,30 @@ def test_dump_step_can_trade_when_gates_pass(tmp_path, monkeypatch) -> None:
     assert broker.get_account("us").cash == pytest.approx(us_before)
     assert body.get("fills")
     assert broker.get_position("cl", "SH600000") is not None
+
+
+def test_stale_dump_cannot_place_current_orders(tmp_path, monkeypatch) -> None:
+    from quantit.api.app import create_app
+    from closeloop.validate.gates import GateReport
+
+    registry, dest = _dump(tmp_path)
+    broker = PaperBroker(
+        create_session("sqlite:///:memory:"), registry,
+        now=lambda: datetime(2024, 10, 20),
+    )
+    worker = LoopWorker(artifacts_dir=tmp_path/"art", data_dir=dest, force_fixture=False)
+    monkeypatch.setattr("closeloop.loop.worker.evaluate_spec", lambda *a, **k: GateReport(True, .05, 1, .02, .1, []))
+    monkeypatch.setattr("closeloop.loop.worker.target_book_from_factor", lambda *a, **k: TargetBook(
+        weights={"SH600000": 1.0}, alpha_id="006", rationale="stale test",
+    ))
+    client = TestClient(create_app(broker=broker, registry=registry, closeloop_worker=worker))
+    result = client.post("/api/v1/closeloop/step").json()
+    assert result["source"] == "qlib_dump"
+    assert result["data_fresh"] is False
+    assert result["can_trade"] is False
+    assert result["fills"] == []
+    worker._step_and_notify()
+    assert broker.list_orders("cl") == []
 
 
 def test_dump_step_no_fills_when_gates_fail(tmp_path, monkeypatch) -> None:

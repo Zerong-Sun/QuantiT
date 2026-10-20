@@ -97,6 +97,7 @@ class LoopWorker:
         self._last_target: TargetBook | None = None
         self._status = WorkerStatus(interval_sec=self.interval_sec)
         self._lock = threading.Lock()
+        self._step_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._seen_inbox: set[str] = set()
@@ -144,9 +145,11 @@ class LoopWorker:
             if self._status.running:
                 return
             self._status.running = True
-            self._stop.clear()
+            self._stop = threading.Event()
             previous = self._thread
-            self._thread = threading.Thread(target=self._loop, name="closeloop-worker", daemon=True)
+            self._thread = threading.Thread(
+                target=self._loop, args=(self._stop,), name="closeloop-worker", daemon=True
+            )
             thread = self._thread
         if previous is not None and previous.is_alive() and previous is not threading.current_thread():
             previous.join(timeout=min(2.0, self.interval_sec + 0.1))
@@ -160,9 +163,11 @@ class LoopWorker:
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
             thread.join(timeout=min(2.0, self.interval_sec + 0.1))
 
-    def _loop(self) -> None:
+    def _loop(self, stop: threading.Event) -> None:
+        if stop.is_set():
+            return
         self._step_and_notify()
-        while not self._stop.wait(self.interval_sec):
+        while not stop.wait(self.interval_sec):
             if not self._status.running:
                 return
             self._step_and_notify()
@@ -178,6 +183,10 @@ class LoopWorker:
             self._record_error(f"on_target: {exc}\n{traceback.format_exc(limit=4)}")
 
     def step(self, *, inbox_only: bool = False) -> tuple[WorkerStatus, TargetBook | None]:
+        with self._step_lock:
+            return self._step_once(inbox_only=inbox_only)
+
+    def _step_once(self, *, inbox_only: bool = False) -> tuple[WorkerStatus, TargetBook | None]:
         target: TargetBook | None = None
         spec: FactorSpec | None = None
         inbox_path: Path | None = None

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
+import math
 import threading
-import traceback
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
@@ -17,6 +17,9 @@ from quantit.markets.hk import HSTECH_THEMES, all_hstech_symbols
 from quantit.markets.cn import CN_ETF_FALLBACK, CN_ETF_THEMES, all_cn_etf_symbols
 from quantit.paper.books import AUTO_DESK_BOOK_IDS, DESK_BOOK_IDS
 from quantit.paper.broker import PaperBroker
+from quantit.paper.models import RecoveryDay, RunnerMark
+from quantit.markets.assets import multiplier
+from quantit.paper.books import venue_of
 from quantit.paper.capital import (
     HK_ETF_WATCHLIST,
     HK_WARRANT_SLOT_PCT,
@@ -167,6 +170,7 @@ class PaperRunner:
         us_option_picker: Callable[[str, float, date], str | None] | None = None,
         interval_sec: int = 60,
         eval_interval_sec: float = 0.0,
+        recovery_mode: bool = False,
     ) -> None:
         self.broker = broker
         self.us_watch = us_watch
@@ -183,6 +187,7 @@ class PaperRunner:
         # quote APIs every tick burns free data sources (Yahoo 429, Eastmoney IP
         # bans) for no benefit.
         self.eval_interval_sec = eval_interval_sec
+        self.recovery_mode = recovery_mode
         self.running = False
         self.last_tick: datetime | None = None
         self.last_error: str | None = None
@@ -192,6 +197,8 @@ class PaperRunner:
         # Serializes tick() so the background loop and manual/desk ticks cannot
         # interleave on the shared broker session (which caused duplicate orders).
         self._tick_lock = threading.Lock()
+        self.book_status: dict[str, dict[str, Any]] = {}
+        self._lifecycle_lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
 
@@ -212,6 +219,13 @@ class PaperRunner:
         from quantit.paper.capital import PAPER_CASH
 
         cash = {a.market_id: a.cash for a in self.broker.list_accounts()}
+        def recovery_status():
+            latest = {}
+            for row in self.broker.session.query(RecoveryDay).order_by(RecoveryDay.day).all():
+                latest[row.market_id] = {
+                    "day": row.day, "status": row.status, "detail": row.detail, "equity": row.equity,
+                }
+            return latest
         return {
             "running": self.running,
             "interval_sec": self.interval_sec,
@@ -230,23 +244,30 @@ class PaperRunner:
                 "cn_etf": list(all_cn_etf_symbols()) + [CN_ETF_FALLBACK],
             },
             "actions": list(reversed(self.actions[-40:])),
+            "books": dict(self.book_status),
+            "auto_books": sorted(default_auto_books()),
+            "recovery": self.broker._guarded(recovery_status),
         }
 
     def start_background(self) -> None:
-        if self.running:
-            return
-        self.running = True
-        self._stop.clear()
-        self._thread = threading.Thread(target=self._loop, name="quantit-paper-runner", daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            if self.running:
+                return
+            self.running = True
+            self._stop = threading.Event()
+            self._thread = threading.Thread(target=self._loop, args=(self._stop,), name="quantit-paper-runner", daemon=True)
+            self._thread.start()
 
     def stop(self) -> None:
-        self.running = False
-        self._stop.set()
+        with self._lifecycle_lock:
+            self.running = False
+            self._stop.set()
 
-    def _loop(self) -> None:
+    def _loop(self, stop: threading.Event) -> None:
+        if stop.is_set():
+            return
         self.tick()
-        while not self._stop.wait(self.interval_sec):
+        while not stop.wait(self.interval_sec):
             if not self.running:
                 return
             self.tick()
@@ -266,27 +287,50 @@ class PaperRunner:
         ``force`` skips today's already-acted marks so a desk can pull a sleeve again
         the same day.
         """
-        wanted = set(markets) if markets else default_auto_books()
+        wanted = set(markets) if markets is not None else default_auto_books()
+        unknown = wanted - set(DESK_BOOK_IDS) - {"cl"}
+        if unknown:
+            raise ValueError(f"Unknown paper books: {sorted(unknown)}")
         wanted.discard("cl")
         produced: list[dict[str, Any]] = []
         with self._tick_lock:
-            try:
-                if "us" in wanted:
-                    produced.extend(self._tick_us(force=force))
-                if "us_book" in wanted and self._us_is_quality_watch():
-                    produced.extend(self._tick_us_book(force=force))
-                if "hk" in wanted:
-                    produced.extend(self._tick_hk_quality(force=force))
-                if "hk_theme" in wanted:
-                    produced.extend(self._tick_hk_theme(force=force))
-                    produced.extend(self._tick_hk_warrants(force=force))
-                if "cn" in wanted:
-                    produced.extend(self._tick_cn_quality(force=force))
-                if "cn_etf" in wanted:
-                    produced.extend(self._tick_cn_etf(force=force))
-                self.last_error = None
-            except Exception as exc:
-                self.last_error = f"{exc}\n{traceback.format_exc(limit=4)}"
+            jobs = {
+                "us": (self._tick_us,),
+                "us_book": (self._tick_us_book,) if self._us_is_quality_watch() else (),
+                "hk": (self._tick_hk_quality,),
+                "hk_theme": (self._tick_hk_theme, self._tick_hk_warrants),
+                "cn": (self._tick_cn_quality,),
+                "cn_etf": (self._tick_cn_etf,),
+            }
+            def run_book(book: str) -> list[dict[str, Any]]:
+                rows: list[dict[str, Any]] = []
+                blocked = self.broker._guarded(lambda: self.broker.session.query(RecoveryDay).filter(
+                    RecoveryDay.market_id == book, RecoveryDay.status != "complete",
+                ).first())
+                if blocked is not None and not force and not self.recovery_mode:
+                    self.book_status[book] = {
+                        "state": "blocked", "last_tick": self.broker.now().isoformat(),
+                        "error": f"Historical recovery {blocked.day}: {blocked.detail}", "orders": 0,
+                    }
+                    return rows
+                self.book_status[book] = {"state": "evaluating", "last_tick": self.broker.now().isoformat()}
+                errors = []
+                for job in jobs[book]:
+                    try:
+                        rows.extend(job(force=force))
+                    except Exception as exc:
+                        errors.append(str(exc))
+                self.book_status[book] = {
+                    "state": "error" if errors else "evaluated",
+                    "last_tick": self.broker.now().isoformat(),
+                    "orders": len(rows), "error": "; ".join(errors) or None,
+                }
+                return rows
+
+            for rows in parallel_map(run_book, [b for b in DESK_BOOK_IDS if b in wanted], max_workers=6):
+                produced.extend(rows)
+            errors = [f"{b}: {s['error']}" for b, s in self.book_status.items() if s.get("error")]
+            self.last_error = "\n".join(errors) or None
             self.last_tick = self.broker.now()
         return produced
 
@@ -294,10 +338,19 @@ class PaperRunner:
         return self.broker.now().date()
 
     def _already(self, market: str, symbol: str) -> bool:
-        return (market, symbol, self._today()) in self._acted
+        return self._marked_on(market, symbol, self._today())
 
-    def _mark(self, market: str, symbol: str) -> None:
-        self._acted.add((market, symbol, self._today()))
+    def _marked_on(self, market: str, symbol: str, day: date) -> bool:
+        return self.broker._guarded(lambda: self.broker.session.get(
+            RunnerMark, (market, symbol, day.isoformat())
+        ) is not None)
+
+    def _mark(self, market: str, symbol: str, day: date | None = None) -> None:
+        day = day or self._today()
+        def save() -> None:
+            self.broker.session.merge(RunnerMark(market_id=market, symbol=symbol, day=day.isoformat()))
+            self.broker.session.commit()
+        self.broker._guarded(save, retry=False)
 
     def _record(self, order, extra: str = "") -> dict[str, Any]:
         row = {
@@ -340,13 +393,20 @@ class PaperRunner:
                 q = adapter.fetch_quote(sym)
             except (ValueError, KeyError):
                 return None
-            return q.last if q.last > 0 else None
+            return q.last if math.isfinite(q.last) and q.last > 0 else None
 
         out: dict[str, float] = {}
         for sym, price in zip(symbols, parallel_map(one, symbols)):
             if price is not None:
                 out[sym] = price
         return out
+
+    def _book_prices(self, adapter, symbols, book: str) -> dict[str, float]:
+        held = {p.symbol for p in self.broker.list_positions(book)}
+        prices = self._quotes_map(adapter, sorted(set(symbols) | held))
+        if held - set(prices):
+            raise ValueError(f"Cannot value held positions: {sorted(held - set(prices))}")
+        return prices
 
     def _tick_us(self, force: bool = False) -> list[dict[str, Any]]:
         if not self.us_watch:
@@ -470,10 +530,12 @@ class PaperRunner:
         if asof.empty:
             return []
         session = asof[-1]
+        if not force and self._marked_on("us", "US-QUALITY-BOOK", session.date()):
+            return []
         cfg = strategy_params("tsmom")
         defaults = HKQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices = self._quotes_map(adapter, US_QUALITY)
+        prices = self._book_prices(adapter, US_QUALITY, "us")
         quoted = [s for s in US_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("us")
@@ -503,7 +565,7 @@ class PaperRunner:
             why=why,
             allow_buys=not self._drawdown_breached("us"),
         )
-        self._mark("us", "US-QUALITY-BOOK")
+        self._mark("us", "US-QUALITY-BOOK", session.date())
         return orders
 
     def _tick_us_book(self, force: bool = False) -> list[dict[str, Any]]:
@@ -619,7 +681,7 @@ class PaperRunner:
                 last = adapter.fetch_quote(pos.symbol).last
             except (ValueError, KeyError):
                 last = pos.avg_cost
-            equity += last * pos.quantity
+            equity += last * pos.quantity * multiplier(venue_of(market_id), pos.symbol)
         return equity < account.initial_cash * (1.0 - PAPER_MAX_DRAWDOWN)
 
     def _us_drawdown_breached(self) -> bool:
@@ -693,16 +755,17 @@ class PaperRunner:
         if asof.empty:
             return []
         session = asof[-1]
+        if not force and self._marked_on("hk_theme", "HSTECH-ROTATION", session.date()):
+            return []
 
         scores = self.hk_scores
         if scores is None and self.hk_score_loader is not None:
             try:
                 scores = self.hk_score_loader()
             except Exception as exc:
-                self.last_error = f"HK scores: {exc}"
-                return []
+                raise ValueError(f"HK scores: {exc}") from exc
         if scores is None or scores.empty:
-            return []
+            raise ValueError("HK theme scores unavailable")
 
         row = scores.asof(session)
         if row is None or not isinstance(row, pd.Series) or row.isna().all():
@@ -725,7 +788,7 @@ class PaperRunner:
             equal_weight_band=strat.equal_weight_band,
         )
         members = list(all_hstech_symbols()) + list(self.hk_etfs)
-        prices = self._quotes_map(adapter, members)
+        prices = self._book_prices(adapter, members, "hk_theme")
         target = strat._expand_to_symbols(theme_w, prices)
         account = self.broker.get_account("hk_theme")
         equity = account.cash
@@ -743,7 +806,7 @@ class PaperRunner:
             force=force,
             market_id="hk_theme",
         )
-        self._mark("hk_theme", "HSTECH-ROTATION")
+        self._mark("hk_theme", "HSTECH-ROTATION", session.date())
         return orders
 
     def _tick_hk_quality(self, force: bool = False) -> list[dict[str, Any]]:
@@ -768,10 +831,12 @@ class PaperRunner:
         if asof.empty:
             return []
         session = asof[-1]
+        if not force and self._marked_on("hk", "HK-QUALITY-BOOK", session.date()):
+            return []
         cfg = strategy_params("hk_quality_book")
         defaults = HKQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices = self._quotes_map(adapter, HK_QUALITY)
+        prices = self._book_prices(adapter, HK_QUALITY, "hk")
         quoted = [s for s in HK_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("hk")
@@ -798,7 +863,7 @@ class PaperRunner:
             why=why,
             allow_buys=not self._drawdown_breached("hk"),
         )
-        self._mark("hk", "HK-QUALITY-BOOK")
+        self._mark("hk", "HK-QUALITY-BOOK", session.date())
         return orders
 
     def _tick_cn_etf(self, force: bool = False) -> list[dict[str, Any]]:
@@ -824,16 +889,17 @@ class PaperRunner:
         if asof.empty:
             return []
         session = asof[-1]
+        if not force and self._marked_on("cn_etf", "CN-ETF-ROTATION", session.date()):
+            return []
 
         scores = self.cn_scores
         if scores is None and self.cn_score_loader is not None:
             try:
                 scores = self.cn_score_loader()
             except Exception as exc:
-                self.last_error = f"CN scores: {exc}"
-                return []
+                raise ValueError(f"CN scores: {exc}") from exc
         if scores is None or scores.empty:
-            return []
+            raise ValueError("CN theme scores unavailable")
 
         row = scores.asof(session)
         if row is None or not isinstance(row, pd.Series) or row.isna().all():
@@ -857,7 +923,7 @@ class PaperRunner:
             equal_weight_band=strat.equal_weight_band,
         )
         members = list(all_cn_etf_symbols()) + [CN_ETF_FALLBACK]
-        prices = self._quotes_map(adapter, members)
+        prices = self._book_prices(adapter, members, "cn_etf")
         target = strat._expand_to_symbols(theme_w, prices)
         account = self.broker.get_account("cn_etf")
         equity = account.cash
@@ -878,7 +944,7 @@ class PaperRunner:
             market_id="cn_etf",
             why=f"CN ETF theme rotation rebalance {session.date()}",
         )
-        self._mark("cn_etf", "CN-ETF-ROTATION")
+        self._mark("cn_etf", "CN-ETF-ROTATION", session.date())
         return orders
 
     def _tick_cn_quality(self, force: bool = False) -> list[dict[str, Any]]:
@@ -903,10 +969,12 @@ class PaperRunner:
         if asof.empty:
             return []
         session = asof[-1]
+        if not force and self._marked_on("cn", "CN-QUALITY-BOOK", session.date()):
+            return []
         cfg = strategy_params("cn_quality_book")
         defaults = CNQualityBookStrategy()
         frac, mom_val = self._quality_sleeve(ohlcv, cfg, defaults, session)
-        prices = self._quotes_map(adapter, CN_QUALITY)
+        prices = self._book_prices(adapter, CN_QUALITY, "cn")
         quoted = [s for s in CN_QUALITY if s in prices]
         target = self._quality_targets(ohlcv, quoted, frac, cfg, defaults, session)
         account = self.broker.get_account("cn")
@@ -934,7 +1002,7 @@ class PaperRunner:
             why=why,
             allow_buys=not self._drawdown_breached("cn"),
         )
-        self._mark("cn", "CN-QUALITY-BOOK")
+        self._mark("cn", "CN-QUALITY-BOOK", session.date())
         return orders
 
     def _quality_sleeve(
@@ -1019,7 +1087,10 @@ class PaperRunner:
         adapter = self.broker.adapter_for(market_id)
         sells: list[tuple[str, int]] = []
         buys: list[tuple[str, int]] = []
-        for symbol in set(prices) | set(held):
+        missing = set(held) - set(prices)
+        if missing:
+            raise ValueError(f"Cannot value held positions: {sorted(missing)}")
+        for symbol in sorted(set(prices) | set(held)):
             px = prices.get(symbol)
             if px is None or px <= 0:
                 continue
